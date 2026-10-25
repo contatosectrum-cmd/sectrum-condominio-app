@@ -13,10 +13,19 @@ jobs:
       - name: Baixar código-fonte
         uses: actions/checkout@v4
 
-      - name: Configurar Node.js 22
+      - name: Configurar Node.js 22 e Selecionar Xcode 26 (iOS 26 SDK)
         uses: actions/setup-node@v4
         with:
           node-version: '22'
+
+      - name: Ativar Xcode 26+ (Exigido pela App Store Connect)
+        run: |
+          XCODE_26=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -n 1)
+          if [ -n "$XCODE_26" ]; then
+            echo "Ativando $XCODE_26"
+            sudo xcode-select -s "$XCODE_26/Contents/Developer"
+          fi
+          xcodebuild -version
 
       - name: Instalar Certificado Apple Distribution e Provisioning Profile
         env:
