@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { api, ErroApi } from '../../lib/api';
 import { desbloquearContextoAudioConversa } from '../../lib/interfoneAudio';
+import { lerChamadaAtendidaNativa } from '../../lib/nativo';
 import {
   PainelInterfoneDigitalMorador,
   ModalConversaApartamento,
@@ -115,6 +116,41 @@ export default function MoradorInterfone() {
       document.removeEventListener('visibilitychange', verificarInterfone);
     };
   }, [sessaoAptAtiva?.call_id, carregar]);
+
+  // iOS: chamada atendida na tela nativa (CallKit) ou recusada nela -> sincroniza a tela do app.
+  // Ao atender com o iPhone desbloqueado, o iOS abre o app e espera que ele mostre a ligação em andamento.
+  useEffect(() => {
+    const aoAtendidaNativa = (ev: Event) => {
+      const d = lerChamadaAtendidaNativa(ev);
+      if (!d) return;
+      chamadasIgnoradasRef.current.add(d.call_id);
+      setChamadaTocando(null);
+      setSessaoAptAtiva((atual) =>
+        atual?.call_id === d.call_id
+          ? atual
+          : {
+              call_id: d.call_id,
+              status: 'answered',
+              direcao: 'recebida',
+              contraparte_nome: d.origem_nome || 'Interfone',
+              device_id: d.device_id || 'APT:0',
+            },
+      );
+    };
+    const aoRecusadaNativa = (ev: Event) => {
+      const cid = (ev as CustomEvent<{ call_id?: string } | undefined>)?.detail?.call_id;
+      if (cid) {
+        chamadasIgnoradasRef.current.add(cid);
+        setChamadaTocando(null);
+      }
+    };
+    window.addEventListener('sectrum-callkit-atendida-nativa', aoAtendidaNativa);
+    window.addEventListener('sectrum-callkit-recusar', aoRecusadaNativa);
+    return () => {
+      window.removeEventListener('sectrum-callkit-atendida-nativa', aoAtendidaNativa);
+      window.removeEventListener('sectrum-callkit-recusar', aoRecusadaNativa);
+    };
+  }, []);
 
   const discarParaApartamento = async (params: { unidade_id?: number; codigo?: string }) => {
     desbloquearAudioInterfone();

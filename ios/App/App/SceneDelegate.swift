@@ -62,6 +62,9 @@ class SectrumBridgeViewController: CAPBridgeViewController, WKScriptMessageHandl
             saidaAudioInterfoneNativo: function(modo) {
               window.webkit.messageHandlers.SectrumIos.postMessage({ acao: 'audioSaida', modo: modo || 'ouvido' });
             },
+            desligarChamadaNativa: function(callId) {
+              window.webkit.messageHandlers.SectrumIos.postMessage({ acao: 'desligarChamadaNativa', callId: callId || '' });
+            },
             temBiometriaNativa: function() { return \(temBio); },
             salvarCredencialBiometriaNativa: function(login, token, usuarioJson) {
               window.webkit.messageHandlers.SectrumIos.postMessage({
@@ -158,6 +161,10 @@ class SectrumBridgeViewController: CAPBridgeViewController, WKScriptMessageHandl
         case "audioSaida":
             let viaVoz = ((body["modo"] as? String) ?? "ouvido") == "vivavoz"
             (UIApplication.shared.delegate as? AppDelegate)?.saidaAudioInterfoneApp(viaVoz: viaVoz)
+
+        case "desligarChamadaNativa":
+            let callId = (body["callId"] as? String) ?? ""
+            (UIApplication.shared.delegate as? AppDelegate)?.desligarChamadaNativa(callId: callId)
 
         case "salvarBiometria":
             let login = normalizarLogin((body["login"] as? String) ?? "")

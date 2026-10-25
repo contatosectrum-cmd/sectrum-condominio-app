@@ -33,6 +33,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     // Conversa nativa entre apartamentos (atendida pelo CallKit, sem depender do WebView)
     private var audioNativo: InterfoneAudioNativo?
     private var callUuidAudioNativo: UUID?
+    private var chamadaNativaDict: [String: Any]?
 
     // Conversa nativa iniciada pelo React com o app aberto (ligando ou atendendo dentro do app).
     // No iPhone o WKWebView só toca no viva-voz; o áudio nativo permite fone de ouvido + viva-voz.
@@ -117,6 +118,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         garantirSentinelaBackgroundAtiva()
         garantirPermissaoMicrofone()
         SectrumDiag.enviarPendentes()
+        // Ligação atendida pela tela do iOS em andamento: garante que o app mostre a tela de conversa
+        if audioNativo != nil {
+            notificarReactChamadaNativaAtendida()
+        }
     }
 
     /**
@@ -329,7 +334,13 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
                 )
             } else {
                 self?.ultimoStatusCallKit = "ringing_ok"
-                SectrumDiag.log("callkit: tocando \(callId)")
+                let s = AVAudioSession.sharedInstance()
+                SectrumDiag.log(String(
+                    format: "callkit: tocando %@ (app=%d outroAudio=%@ silenciarSecundario=%@ volume=%.2f categoria=%@)",
+                    callId, UIApplication.shared.applicationState.rawValue,
+                    s.isOtherAudioPlaying ? "sim" : "nao", s.secondaryAudioShouldBeSilencedHint ? "sim" : "nao",
+                    s.outputVolume, s.category.rawValue
+                ))
                 // O iOS já está tocando: o React (se aberto) não toca a própria campainha por cima
                 let idJs = callId.filter { $0.isLetter || $0.isNumber || $0 == "_" || $0 == "-" }
                 SectrumBridgeViewController.shared?.executarJs("window.__sectrumCallKitTocando = '\(idJs)';")
@@ -415,17 +426,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             configurarSessaoAudioChamada()
             audioNativo = audio
             callUuidAudioNativo = action.callUUID
+            chamadaNativaDict = dict
             audio.aoEncerrarRemotamente = { [weak self] _ in
                 self?.encerrarConversaNativaPorRemoto()
             }
             SectrumDiag.log("callkit: microfone permissão=\(Self.descreverPermissaoMicrofone())")
 
-            // Se o app estiver aberto, avisa o React para NÃO abrir a própria tela/microfone para esta chamada
-            let callIdJs = callId.filter { $0.isLetter || $0.isNumber || $0 == "_" || $0 == "-" }
-            SectrumBridgeViewController.shared?.executarJs(
-                "window.__sectrumChamadaNativaAtiva = '\(callIdJs)';"
-                + "window.dispatchEvent(new CustomEvent('sectrum-callkit-atendida-nativa', { detail: { call_id: '\(callIdJs)' } }));"
-            )
+            // Avisa o React (se aberto) para mostrar a tela de conversa SEM abrir o próprio microfone.
+            // Com o iPhone desbloqueado o iOS abre o app ao atender e espera que ele exiba a ligação em andamento.
+            notificarReactChamadaNativaAtendida()
 
             action.fulfill()
 
@@ -483,6 +492,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             // Usuário desligou a conversa nativa pela tela do iOS
             ultimoStatusCallKit = "ended"
             sinalizarInterfoneServidor(callId: callId, deviceId: deviceId, acao: "hangUp")
+            notificarReactStatusChamada(callId: audioNativo?.callId ?? callId, status: "ended")
             finalizarAudioNativo()
         } else if !chamadaAtendida && !callId.isEmpty {
             ultimoStatusCallKit = "rejected"
@@ -577,7 +587,68 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     }
 
     func mudoAudioInterfoneApp(_ mudo: Bool) {
-        audioNativoApp?.mudo = mudo
+        if let a = audioNativoApp {
+            a.mudo = mudo
+        } else if let uuid = callUuidAudioNativo {
+            // Conversa da tela nativa: usa a ação do CallKit para o botão "mudo" do iOS ficar sincronizado
+            let acao = CXSetMutedCallAction(call: uuid, muted: mudo)
+            cxCallController.request(CXTransaction(action: acao)) { [weak self] erro in
+                if erro != nil {
+                    DispatchQueue.main.async { self?.audioNativo?.mudo = mudo }
+                }
+            }
+        }
+    }
+
+    /// Chamado pelo React quando o morador desliga pela tela do app uma ligação atendida pela tela nativa.
+    func desligarChamadaNativa(callId: String) {
+        guard let a = audioNativo, a.callId == callId, let uuid = callUuidAudioNativo else { return }
+        SectrumDiag.log("callkit: desligar pela tela do app \(callId)")
+        cxCallController.request(CXTransaction(action: CXEndCallAction(call: uuid))) { [weak self] erro in
+            guard erro != nil else { return }
+            // O CallKit não aceitou (chamada já não existe para ele): encerra localmente
+            DispatchQueue.main.async {
+                self?.cxProvider?.reportCall(with: uuid, endedAt: Date(), reason: .remoteEnded)
+                self?.finalizarAudioNativo()
+                self?.callUuidAtivo = nil
+                self?.callIdAtivo = ""
+                self?.chamadaAtivaDict = nil
+                self?.chamadaAtendida = false
+            }
+        }
+    }
+
+    /// Avisa o React que há uma ligação entre apartamentos atendida pela tela nativa (mostra a tela de conversa).
+    /// Repete algumas vezes porque o WebView pode ainda estar carregando quando o iOS abre o app.
+    private func notificarReactChamadaNativaAtendida() {
+        guard let a = audioNativo else { return }
+        let dict = chamadaNativaDict ?? [:]
+        let detalhe: [String: Any] = [
+            "call_id": a.callId,
+            "origem_nome": (dict["origem_nome"] as? String) ?? "Interfone",
+            "device_id": (dict["device_id"] as? String) ?? "APT:0",
+        ]
+        guard let dados = try? JSONSerialization.data(withJSONObject: detalhe),
+              let json = String(data: dados, encoding: .utf8) else { return }
+        let js = "window.__sectrumChamadaNativaAtiva = \(json).call_id;"
+            + "window.dispatchEvent(new CustomEvent('sectrum-callkit-atendida-nativa', { detail: \(json) }));"
+        for atraso in [0.0, 0.8, 2.0, 4.0] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + atraso) { [weak self] in
+                guard let self = self, self.audioNativo?.callId == a.callId else { return }
+                SectrumBridgeViewController.shared?.executarJs(js)
+            }
+        }
+    }
+
+    /// Avisa o React que a conversa terminou (fecha a tela de conversa).
+    private func notificarReactStatusChamada(callId: String, status: String) {
+        let idJs = callId.filter { $0.isLetter || $0.isNumber || $0 == "_" || $0 == "-" }
+        let stJs = status.filter { $0.isLetter || $0 == "_" }
+        guard !idJs.isEmpty else { return }
+        SectrumBridgeViewController.shared?.executarJs(
+            "window.__sectrumChamadaNativaAtiva = '';"
+            + "window.dispatchEvent(new CustomEvent('sectrum-audio-nativo-status', { detail: { call_id: '\(idJs)', status: '\(stJs)' } }));"
+        )
     }
 
     func saidaAudioInterfoneApp(viaVoz: Bool) {
@@ -643,6 +714,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         audioNativo?.encerrar()
         audioNativo = nil
         callUuidAudioNativo = nil
+        chamadaNativaDict = nil
         if tinhaConversa {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                 SectrumDiag.enviarPendentes()
@@ -654,6 +726,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     private func encerrarConversaNativaPorRemoto() {
         if let uuid = callUuidAudioNativo {
             cxProvider?.reportCall(with: uuid, endedAt: Date(), reason: .remoteEnded)
+        }
+        if let id = audioNativo?.callId {
+            notificarReactStatusChamada(callId: id, status: "ended")
         }
         finalizarAudioNativo()
         callUuidAtivo = nil

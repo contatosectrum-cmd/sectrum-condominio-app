@@ -21,6 +21,8 @@ export interface SectrumAndroidBridge {
   encerrarAudioInterfoneNativo?: () => void;
   mudoAudioInterfoneNativo?: (mudo: boolean) => void;
   saidaAudioInterfoneNativo?: (modo: 'ouvido' | 'vivavoz') => void;
+  /** iOS: encerra a ligação da tela nativa (CallKit) quando o morador desliga pela tela do app. */
+  desligarChamadaNativa?: (callId: string) => void;
 }
 
 declare global {
@@ -44,6 +46,19 @@ export function temAudioInterfoneNativo(): boolean {
 /** True quando a tela nativa do iOS (CallKit) já está tocando esta chamada (o app não toca campainha por cima). */
 export function callKitTocandoChamada(callId: string | undefined | null): boolean {
   return !!callId && typeof window !== 'undefined' && window.__sectrumCallKitTocando === callId;
+}
+
+/** Dados enviados pelo iOS quando uma chamada entre apartamentos é atendida na tela nativa (CallKit). */
+export interface ChamadaAtendidaNativa {
+  call_id: string;
+  origem_nome?: string;
+  device_id?: string;
+}
+
+/** Lê o detalhe do evento `sectrum-callkit-atendida-nativa`. */
+export function lerChamadaAtendidaNativa(ev: Event): ChamadaAtendidaNativa | null {
+  const d = (ev as CustomEvent<ChamadaAtendidaNativa | undefined>).detail;
+  return d && typeof d.call_id === 'string' && d.call_id !== '' ? d : null;
 }
 
 const URL_PRODUCAO_PADRAO = 'https://cond.vps.seg.br';

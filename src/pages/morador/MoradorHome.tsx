@@ -8,6 +8,7 @@ import { obterToken, obterTokenInterfone, restaurarSessaoInterfone } from '../..
 import {
   acionarSireneEmergenciaNativa,
   callKitTocandoChamada,
+  lerChamadaAtendidaNativa,
   obterUrlWsGo2rtc,
   pararSireneEmergenciaNativa,
   pararToqueInterfoneNativo,
@@ -3348,6 +3349,10 @@ export function ModalConversaApartamento({
               pararPulsoChamando();
               sessaoMicRef.current?.encerrar();
               sessaoMicRef.current = null;
+              // iPhone: se a chamada foi atendida pela tela nativa (CallKit), encerra também a ligação do iOS
+              if (usarAudioNativo) {
+                window.SectrumAndroid?.desligarChamadaNativa?.(sessao.call_id);
+              }
               onEncerrar();
             }}
             className="flex flex-col items-center justify-center gap-1.5 py-3.5 px-6 sm:px-7 rounded-3xl bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white font-black text-xs sm:text-sm shadow-xl shadow-rose-600/40 cursor-pointer transition min-w-[104px]"
@@ -4050,14 +4055,32 @@ export default function MoradorHome() {
         setChamadaTocando(null);
       }
     };
+    // iOS: chamada entre apartamentos atendida na tela nativa (CallKit). O áudio é 100% nativo; o app mostra a
+    // tela de conversa (com o iPhone desbloqueado o iOS abre o app e espera que ele exiba a ligação em andamento).
+    const aoCallKitAtendidaNativa = (ev: Event) => {
+      const d = lerChamadaAtendidaNativa(ev);
+      if (!d) return;
+      chamadasIgnoradasRef.current.add(d.call_id);
+      setChamadaTocando(null);
+      setSessaoAptAtiva((atual) =>
+        atual?.call_id === d.call_id
+          ? atual
+          : {
+              call_id: d.call_id,
+              status: 'answered',
+              direcao: 'recebida',
+              contraparte_nome: d.origem_nome || 'Interfone',
+              device_id: d.device_id || 'APT:0',
+            },
+      );
+    };
     window.addEventListener('sectrum-callkit-atender', aoCallKitAtender);
     window.addEventListener('sectrum-callkit-recusar', aoCallKitRecusar);
-    // iOS: chamada entre apartamentos atendida na tela nativa (CallKit) com áudio 100% nativo -> o WebView não abre microfone/tela própria
-    window.addEventListener('sectrum-callkit-atendida-nativa', aoCallKitRecusar);
+    window.addEventListener('sectrum-callkit-atendida-nativa', aoCallKitAtendidaNativa);
     return () => {
       window.removeEventListener('sectrum-callkit-atender', aoCallKitAtender);
       window.removeEventListener('sectrum-callkit-recusar', aoCallKitRecusar);
-      window.removeEventListener('sectrum-callkit-atendida-nativa', aoCallKitRecusar);
+      window.removeEventListener('sectrum-callkit-atendida-nativa', aoCallKitAtendidaNativa);
     };
   }, []);
 
@@ -5012,16 +5035,36 @@ export function MonitorGlobalInterfone() {
       }
     };
 
+    // iOS: chamada atendida na tela nativa (CallKit) -> mostra a tela de conversa (áudio 100% nativo).
+    // Nas páginas que já monitoram o interfone, a própria página mostra a tela (evita duas telas).
+    const aoCallKitAtendidaNativa = (ev: Event) => {
+      const d = lerChamadaAtendidaNativa(ev);
+      if (!d) return;
+      chamadasIgnoradasRef.current.add(d.call_id);
+      setChamadaTocando(null);
+      if (paginaJaMonitora) return;
+      setSessaoAptAtiva((atual) =>
+        atual?.call_id === d.call_id
+          ? atual
+          : {
+              call_id: d.call_id,
+              status: 'answered',
+              direcao: 'recebida',
+              contraparte_nome: d.origem_nome || 'Interfone',
+              device_id: d.device_id || 'APT:0',
+            },
+      );
+    };
+
     window.addEventListener('sectrum-callkit-atender', aoCallKitAtender);
     window.addEventListener('sectrum-callkit-recusar', aoCallKitRecusar);
-    // iOS: chamada entre apartamentos atendida na tela nativa (CallKit) com áudio 100% nativo -> o WebView não abre microfone/tela própria
-    window.addEventListener('sectrum-callkit-atendida-nativa', aoCallKitRecusar);
+    window.addEventListener('sectrum-callkit-atendida-nativa', aoCallKitAtendidaNativa);
     return () => {
       window.removeEventListener('sectrum-callkit-atender', aoCallKitAtender);
       window.removeEventListener('sectrum-callkit-recusar', aoCallKitRecusar);
-      window.removeEventListener('sectrum-callkit-atendida-nativa', aoCallKitRecusar);
+      window.removeEventListener('sectrum-callkit-atendida-nativa', aoCallKitAtendidaNativa);
     };
-  }, [atender]);
+  }, [atender, paginaJaMonitora]);
 
   if (paginaJaMonitora && !sessaoAptAtiva && !portaModal && !emergenciaAtiva) {
     return null;

@@ -18,8 +18,8 @@ enum SectrumDiag {
         fila.sync {
             var trilha = UserDefaults.standard.stringArray(forKey: chaveTrilha) ?? []
             trilha.append(linha)
-            if trilha.count > 60 {
-                trilha.removeFirst(trilha.count - 60)
+            if trilha.count > 150 {
+                trilha.removeFirst(trilha.count - 150)
             }
             UserDefaults.standard.set(trilha, forKey: chaveTrilha)
         }
@@ -83,8 +83,13 @@ enum SectrumDiag {
  * Usa o processamento de voz do iOS (cancelamento de eco + supressão de ruído) e o modo `.voiceChat`,
  * que por padrão toca no FONE DE OUVIDO (como uma ligação comum); o viva-voz é opcional.
  *
- * Robustez: o AVAudioEngine lança exceções Objective-C (que derrubam o app e não podem ser capturadas em Swift)
- * se for usado fora de estado. Por isso toda operação no motor verifica antes se ele está realmente rodando.
+ * Robustez:
+ *  - O iOS PARA o AVAudioEngine a cada mudança de configuração (troca fone/viva-voz/Bluetooth, ativação do CallKit).
+ *    Nesses casos o motor é remontado por completo (tap do microfone, conversor e player), senão a voz recebida
+ *    fica presa na fila e nada toca.
+ *  - Um "cão de guarda" verifica a cada segundo se o motor e o player estão realmente rodando.
+ *  - O AVAudioEngine lança exceções Objective-C (que derrubam o app) se usado fora de estado: toda operação no
+ *    motor é feita na main thread e somente com o motor verificado.
  */
 final class InterfoneAudioNativo {
 
@@ -102,15 +107,22 @@ final class InterfoneAudioNativo {
     private let fila = DispatchQueue(label: "br.seg.vps.cond.sectrum.interfone-audio")
     private let sessaoHttp: URLSession
     private var observadorConfig: NSObjectProtocol?
+    private var timerGuarda: Timer?
 
     // Estado acessado somente dentro de `fila`
     private var pendenteEnvio = Data()
     private var enviosEmVoo = 0
     private var cursorEscuta = 0
     private var escutaEmCurso = false
-    private var framesNaFila = 0
     private var falhasSeguidas = 0
     private var timerEscuta: DispatchSourceTimer?
+    private var estatMicSomaQuad: Double = 0
+    private var estatMicAmostras = 0
+    private var estatRxSomaQuad: Double = 0
+    private var estatRxAmostras = 0
+    private var estatPacotesEnviados = 0
+    private var estatPacotesRecebidos = 0
+    private var estatFalhasEnvio = 0
 
     // Estado do motor de áudio (main thread)
     private(set) var iniciado = false
@@ -119,6 +131,13 @@ final class InterfoneAudioNativo {
     private var tentativasInicio = 0
     private var encerrado = false
     private var viaVozDesejado = false
+    private var usarProcessamentoVoz = true
+    private var framesNaFila = 0
+    private var geracaoPlayer = 0
+    private var ultimoConsumoPlayer = Date()
+    private var segundosAtivo = 0
+    private var reinicios = 0
+    private var ultimaMontagem = Date.distantPast
 
     /// Quando true envia silêncio (mantém a chamada viva no servidor) em vez da voz do microfone.
     var mudo = false
@@ -145,6 +164,7 @@ final class InterfoneAudioNativo {
         if let obs = observadorConfig {
             NotificationCenter.default.removeObserver(obs)
         }
+        timerGuarda?.invalidate()
     }
 
     // MARK: - Ciclo de vida
@@ -160,11 +180,32 @@ final class InterfoneAudioNativo {
         guard !iniciado, !encerrado else { return }
         iniciado = true
         tentativasInicio += 1
+        // Se já falhou algumas vezes, tenta sem o processamento de voz (alguns aparelhos/rotas não suportam)
+        usarProcessamentoVoz = tentativasInicio <= 3
+
+        // A saída (fone/viva-voz) é aplicada ANTES de ligar o motor para não provocar uma
+        // mudança de configuração logo em seguida (que parava o motor).
+        aplicarSaida()
+
+        guard montarEIniciarMotor(contexto: "iniciar tentativa \(tentativasInicio)") else {
+            agendarNovaTentativa()
+            return
+        }
+
+        motorAtivo = true
+        observarMudancasDeConfiguracao()
+        iniciarCaoDeGuarda()
+        iniciarLoopEscuta()
+        SectrumDiag.log("audio: conversa nativa ATIVA (\(callId))")
+    }
+
+    /// Monta o grafo de áudio do zero (processamento de voz, player, tap do microfone) e liga o motor.
+    /// Retorna false se o microfone ainda não estiver disponível ou o motor não ligar.
+    @discardableResult
+    private func montarEIniciarMotor(contexto: String) -> Bool {
+        desmontarMotor()
 
         let input = engine.inputNode
-        // Cancelamento de eco (AEC) + supressão de ruído nativos do iOS.
-        // Se o motor já falhou algumas vezes, tenta sem o processamento de voz (alguns aparelhos/rotas não suportam).
-        let usarProcessamentoVoz = tentativasInicio <= 3
         do {
             try input.setVoiceProcessingEnabled(usarProcessamentoVoz)
         } catch {
@@ -173,57 +214,74 @@ final class InterfoneAudioNativo {
 
         let formatoMic = input.outputFormat(forBus: 0)
         let sessao = AVAudioSession.sharedInstance()
-        SectrumDiag.log("audio: iniciar tentativa \(tentativasInicio) vp=\(usarProcessamentoVoz) mic=\(formatoMic.sampleRate)Hz/\(formatoMic.channelCount)ch categoria=\(sessao.category.rawValue) permissao=\(AppDelegate.descreverPermissaoMicrofone()) rota=\(Self.descreverRota())")
+        SectrumDiag.log("audio: \(contexto) vp=\(usarProcessamentoVoz) mic=\(formatoMic.sampleRate)Hz/\(formatoMic.channelCount)ch categoria=\(sessao.category.rawValue) modo=\(sessao.mode.rawValue) permissao=\(AppDelegate.descreverPermissaoMicrofone()) rota=\(Self.descreverRota())")
         guard formatoMic.sampleRate > 0, formatoMic.channelCount > 0 else {
-            agendarNovaTentativa(motivo: "microfone sem formato")
-            return
+            SectrumDiag.log("audio: microfone ainda sem formato")
+            return false
         }
 
         if player.engine == nil {
             engine.attach(player)
-            engine.connect(player, to: engine.mainMixerNode, format: formatoRede)
         }
+        engine.connect(player, to: engine.mainMixerNode, format: formatoRede)
+        engine.mainMixerNode.outputVolume = 1.0
+        player.volume = 1.0
 
-        if !tapInstalado {
-            // format: nil => usa exatamente o formato atual do barramento (evita exceção por formato divergente)
-            input.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in
-                self?.processarMicrofone(buffer)
-            }
-            tapInstalado = true
+        conversorMic = nil
+        // format: nil => usa exatamente o formato atual do barramento (evita exceção por formato divergente)
+        input.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in
+            self?.processarMicrofone(buffer)
         }
+        tapInstalado = true
 
         engine.prepare()
         do {
             try engine.start()
         } catch {
-            agendarNovaTentativa(motivo: "engine.start: \(error.localizedDescription)")
-            return
+            SectrumDiag.log("audio: engine.start falhou (\(error.localizedDescription))")
+            desmontarMotor()
+            return false
         }
         guard engine.isRunning else {
-            agendarNovaTentativa(motivo: "engine não está rodando")
-            return
+            SectrumDiag.log("audio: engine não ficou rodando")
+            desmontarMotor()
+            return false
         }
 
-        motorAtivo = true
-        player.play()
-        aplicarSaida()
-        observarMudancasDeConfiguracao()
-        iniciarLoopEscuta()
-        SectrumDiag.log("audio: conversa nativa ATIVA (\(callId))")
+        reiniciarPlayer()
+        ultimaMontagem = Date()
+        return true
     }
 
-    private func agendarNovaTentativa(motivo: String) {
-        SectrumDiag.log("audio: falha ao iniciar (\(motivo))")
-        iniciado = false
-        // Desfaz o que foi montado para a próxima tentativa começar limpa (o formato do microfone pode mudar)
+    /// Desfaz o grafo (tap + motor) para remontar do zero.
+    private func desmontarMotor() {
         if tapInstalado {
             engine.inputNode.removeTap(onBus: 0)
             tapInstalado = false
         }
+        if player.engine != nil {
+            player.stop()
+        }
         if engine.isRunning {
             engine.stop()
         }
-        conversorMic = nil
+    }
+
+    /// Zera a fila do player e volta a tocar (descarta áudio atrasado que ficou preso).
+    private func reiniciarPlayer() {
+        geracaoPlayer += 1
+        framesNaFila = 0
+        ultimoConsumoPlayer = Date()
+        if player.engine != nil {
+            player.stop()
+            if engine.isRunning {
+                player.play()
+            }
+        }
+    }
+
+    private func agendarNovaTentativa() {
+        iniciado = false
         guard tentativasInicio < 8, !encerrado else {
             SectrumDiag.log("audio: desistiu após \(tentativasInicio) tentativas")
             return
@@ -235,26 +293,76 @@ final class InterfoneAudioNativo {
         }
     }
 
+    /// Remonta o motor após o iOS pará-lo (mudança de rota/configuração ou interrupção).
+    private func remontarMotor(motivo: String) {
+        guard !encerrado, motorAtivo else { return }
+        reinicios += 1
+        if montarEIniciarMotor(contexto: "remontar (\(motivo)) #\(reinicios)") {
+            SectrumDiag.log("audio: motor remontado com sucesso (rota=\(Self.descreverRota()))")
+        } else {
+            SectrumDiag.log("audio: falha ao remontar motor - nova tentativa no cão de guarda")
+        }
+    }
+
     private func observarMudancasDeConfiguracao() {
         guard observadorConfig == nil else { return }
-        // Troca de rota (fone / viva-voz / Bluetooth) pode parar o engine: religa com segurança
         observadorConfig = NotificationCenter.default.addObserver(
             forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
         ) { [weak self] _ in
             guard let self = self, !self.encerrado, self.motorAtivo else { return }
-            SectrumDiag.log("audio: mudança de configuração (rota=\(Self.descreverRota()))")
-            if !self.engine.isRunning {
-                self.engine.prepare()
-                do {
-                    try self.engine.start()
-                } catch {
-                    SectrumDiag.log("audio: falha ao religar engine (\(error.localizedDescription))")
-                    return
-                }
+            // A própria remontagem gera esta notificação: ignora logo após montar (o cão de guarda cobre o resto)
+            if Date().timeIntervalSince(self.ultimaMontagem) < 1.0 && self.engine.isRunning { return }
+            SectrumDiag.log("audio: mudança de configuração (rota=\(Self.descreverRota()), rodando=\(self.engine.isRunning))")
+            // Pequena espera para o iOS terminar de trocar a rota antes de remontar
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                self?.remontarMotor(motivo: "configuração")
             }
-            if self.engine.isRunning && !self.player.isPlaying {
-                self.player.play()
+        }
+    }
+
+    /// Verifica a cada segundo se o motor e o player estão realmente funcionando e registra os níveis de áudio.
+    private func iniciarCaoDeGuarda() {
+        timerGuarda?.invalidate()
+        let t = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
+            self?.verificarSaude()
+        }
+        RunLoop.main.add(t, forMode: .common)
+        timerGuarda = t
+    }
+
+    private func verificarSaude() {
+        guard !encerrado, motorAtivo else { return }
+        segundosAtivo += 1
+
+        if !engine.isRunning {
+            remontarMotor(motivo: "motor parado")
+            return
+        }
+        if !player.isPlaying {
+            SectrumDiag.log("audio: player parado - religando")
+            reiniciarPlayer()
+        } else if framesNaFila > 0 && Date().timeIntervalSince(ultimoConsumoPlayer) > 1.5 {
+            // Há áudio na fila, mas o player não consome há 1,5 s: travou
+            SectrumDiag.log("audio: player travado (fila=\(framesNaFila)) - religando")
+            reiniciarPlayer()
+        }
+
+        // Níveis (0-100) a cada 5 s nos primeiros 30 s e depois a cada 30 s
+        let deveRegistrar = (segundosAtivo <= 30 && segundosAtivo % 5 == 0) || segundosAtivo % 30 == 0
+        if deveRegistrar {
+            let est = fila.sync { () -> (Double, Double, Int, Int, Int) in
+                let mic = estatMicAmostras > 0 ? sqrt(estatMicSomaQuad / Double(estatMicAmostras)) : 0
+                let rx = estatRxAmostras > 0 ? sqrt(estatRxSomaQuad / Double(estatRxAmostras)) : 0
+                let r = (mic, rx, estatPacotesEnviados, estatPacotesRecebidos, estatFalhasEnvio)
+                estatMicSomaQuad = 0; estatMicAmostras = 0; estatRxSomaQuad = 0; estatRxAmostras = 0
+                estatPacotesEnviados = 0; estatPacotesRecebidos = 0; estatFalhasEnvio = 0
+                return r
             }
+            SectrumDiag.log(String(
+                format: "audio: t=%ds mic=%.1f%% rx=%.1f%% env=%d rec=%d falhasEnv=%d fila=%d player=%@ mudo=%@ rota=%@",
+                segundosAtivo, est.0 * 100, est.1 * 100, est.2, est.3, est.4, framesNaFila,
+                player.isPlaying ? "on" : "off", mudo ? "sim" : "nao", Self.descreverRota()
+            ))
         }
     }
 
@@ -284,6 +392,8 @@ final class InterfoneAudioNativo {
         }
         guard !encerrado else { return }
         encerrado = true
+        timerGuarda?.invalidate()
+        timerGuarda = nil
         // Executado na mesma fila serial dos loops de rede: nenhuma requisição nova é criada após a invalidação
         fila.async { [weak self] in
             guard let self = self else { return }
@@ -295,19 +405,10 @@ final class InterfoneAudioNativo {
             NotificationCenter.default.removeObserver(obs)
             observadorConfig = nil
         }
-        if tapInstalado {
-            engine.inputNode.removeTap(onBus: 0)
-            tapInstalado = false
-        }
-        if motorAtivo {
-            player.stop()
-        }
-        if engine.isRunning {
-            engine.stop()
-        }
+        desmontarMotor()
         motorAtivo = false
         try? AVAudioSession.sharedInstance().overrideOutputAudioPort(.none)
-        SectrumDiag.log("audio: conversa nativa encerrada (\(callId))")
+        SectrumDiag.log("audio: conversa nativa encerrada (\(callId)) após \(segundosAtivo)s, remontagens=\(reinicios)")
     }
 
     static func descreverRota() -> String {
@@ -346,14 +447,19 @@ final class InterfoneAudioNativo {
 
         let n = Int(saida.frameLength)
         var bytes = [UInt8](repeating: 0xFF, count: n) // 0xFF = silêncio em µ-law
-        if !mudo {
-            for i in 0..<n {
-                let v = canal[i].isFinite ? max(-1.0, min(1.0, canal[i])) : 0
+        var somaQuad: Double = 0
+        for i in 0..<n {
+            let v = canal[i].isFinite ? max(-1.0, min(1.0, canal[i])) : 0
+            somaQuad += Double(v * v)
+            if !mudo {
                 bytes[i] = Self.linearParaUlaw(Int16(v * 32767.0))
             }
         }
         fila.async { [weak self] in
-            self?.enfileirarEnvio(bytes)
+            guard let self = self else { return }
+            self.estatMicSomaQuad += somaQuad
+            self.estatMicAmostras += n
+            self.enfileirarEnvio(bytes)
         }
     }
 
@@ -383,10 +489,16 @@ final class InterfoneAudioNativo {
             "audio_base64": pacote.base64EncodedString(),
         ])
         enviosEmVoo += 1
-        sessaoHttp.dataTask(with: req) { [weak self] _, _, _ in
+        sessaoHttp.dataTask(with: req) { [weak self] _, resp, _ in
             guard let self = self else { return }
+            let ok = (resp as? HTTPURLResponse)?.statusCode == 200
             self.fila.async {
                 self.enviosEmVoo = max(0, self.enviosEmVoo - 1)
+                if ok {
+                    self.estatPacotesEnviados += 1
+                } else {
+                    self.estatFalhasEnvio += 1
+                }
             }
         }.resume()
     }
@@ -450,10 +562,14 @@ final class InterfoneAudioNativo {
         if let c = json["cursor"] as? Int, c > 0 {
             cursorEscuta = c
         }
-        if let b64 = json["audio_b64"] as? String, !b64.isEmpty, let bytes = Data(base64Encoded: b64) {
-            let n = bytes.count
+        if let b64 = json["audio_b64"] as? String, !b64.isEmpty, let bytes = Data(base64Encoded: b64), !bytes.isEmpty {
+            estatPacotesRecebidos += 1
+            // Decodifica aqui (fora da main thread) e mede o nível da voz recebida
+            let amostras = bytes.map { Self.tabelaUlaw[Int($0)] }
+            estatRxSomaQuad += amostras.reduce(0) { $0 + Double($1 * $1) }
+            estatRxAmostras += amostras.count
             DispatchQueue.main.async { [weak self] in
-                self?.reproduzir(bytes, frames: n)
+                self?.reproduzir(amostras)
             }
         }
         let status = ((json["call_status"] as? String) ?? "").lowercased()
@@ -463,32 +579,29 @@ final class InterfoneAudioNativo {
     }
 
     /// Executado na main thread (mesma thread que liga/desliga o motor), evitando usar o player com o motor parado.
-    private func reproduzir(_ bytes: Data, frames n: Int) {
-        guard !encerrado, motorAtivo, engine.isRunning, n > 0 else { return }
+    private func reproduzir(_ amostras: [Float]) {
+        let n = amostras.count
+        guard !encerrado, motorAtivo, engine.isRunning, player.engine != nil, n > 0 else { return }
         // Se já houver mais de ~0,5 s aguardando para tocar, descarta para não acumular atraso na conversa
-        guard framesNaFilaAtual() <= 4000 else { return }
+        guard framesNaFila <= 4000 else { return }
         guard let buf = AVAudioPCMBuffer(pcmFormat: formatoRede, frameCapacity: AVAudioFrameCount(n)),
               let canal = buf.floatChannelData?[0] else { return }
         buf.frameLength = AVAudioFrameCount(n)
-        bytes.withUnsafeBytes { (p: UnsafeRawBufferPointer) in
-            for i in 0..<n {
-                canal[i] = Self.tabelaUlaw[Int(p[i])]
-            }
+        for i in 0..<n {
+            canal[i] = amostras[i]
         }
-        fila.sync { framesNaFila += n }
+        framesNaFila += n
+        let geracao = geracaoPlayer
         player.scheduleBuffer(buf) { [weak self] in
-            guard let self = self else { return }
-            self.fila.async {
+            DispatchQueue.main.async {
+                guard let self = self, geracao == self.geracaoPlayer else { return }
                 self.framesNaFila = max(0, self.framesNaFila - n)
+                self.ultimoConsumoPlayer = Date()
             }
         }
         if !player.isPlaying {
             player.play()
         }
-    }
-
-    private func framesNaFilaAtual() -> Int {
-        fila.sync { framesNaFila }
     }
 
     private func encerrarPorRemoto(_ motivo: String) {
