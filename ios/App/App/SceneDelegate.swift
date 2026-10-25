@@ -9,22 +9,8 @@ import Capacitor
  */
 class SectrumBridgeViewController: CAPBridgeViewController, WKScriptMessageHandler {
 
-    override open func viewDidLoad() {
-        super.viewDidLoad()
-        view.backgroundColor = UIColor.white
-        webView?.scrollView.contentInsetAdjustmentBehavior = .never
-        webView?.scrollView.scrollsToTop = false
-        webView?.scrollView.bounces = false
-    }
-
-    override open func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        // Garante que todo o app fique abaixo da Dynamic Island / Relógio do iOS e acima da barra inferior
-        webView?.frame = view.safeAreaLayoutGuide.layoutFrame
-    }
-
     override open func webViewConfiguration(for instanceConfiguration: InstanceConfiguration) -> WKWebViewConfiguration {
-        let config = super.webViewConfiguration(for: instanceConfiguration)
+        let config = super.webViewConfiguration(for instanceConfiguration)
         config.allowsInlineMediaPlayback = true
         config.mediaTypesRequiringUserActionForPlayback = []
 
@@ -34,6 +20,7 @@ class SectrumBridgeViewController: CAPBridgeViewController, WKScriptMessageHandl
         let temBio = Self.dispositivoTemFaceIdOuTouchId() ? "true" : "false"
         let jsBridge = """
         (function() {
+          try { document.documentElement.classList.add('sectrum-ios-native'); } catch (e) {}
           window.SectrumAndroid = {
             ehAppNativo: function() { return true; },
             obterVersaoApp: function() { return '1.0.0-ios-native'; },

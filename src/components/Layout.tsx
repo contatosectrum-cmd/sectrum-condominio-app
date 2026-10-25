@@ -218,6 +218,14 @@ export default function Layout() {
     }
   };
 
+  const ehIos =
+    typeof navigator !== 'undefined' &&
+    (/iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) ||
+      (typeof document !== 'undefined' && document.documentElement.classList.contains('sectrum-ios-native')));
+  const safeTopCss = ehIos ? 'max(env(safe-area-inset-top, 0px), 56px)' : 'env(safe-area-inset-top, 0px)';
+  const safeBottomCss = ehIos ? 'max(env(safe-area-inset-bottom, 0px), 24px)' : 'env(safe-area-inset-bottom, 0px)';
+
   const alternarTelaCheia = () => {
     if (!document.fullscreenElement) {
       setDesktopCollapsed(true);
@@ -240,7 +248,8 @@ export default function Layout() {
 
       {/* SIDEBAR (largura ampliada e itens maiores para facilitar leitura e toque no celular e desktop) */}
       <aside
-        className={`w-[284px] max-[900px]:w-[308px] bg-[#0f172a] h-screen h-[100dvh] max-h-[100dvh] fixed top-0 left-0 flex flex-col z-[200] pt-[env(safe-area-inset-top,0px)] pb-[env(safe-area-inset-bottom,0px)] transition-transform duration-250 ease-[cubic-bezier(0.4,0,0.2,1)] shadow-[4px_0_24px_rgba(0,0,0,0.22)] ${
+        style={{ paddingTop: safeTopCss, paddingBottom: safeBottomCss }}
+        className={`w-[284px] max-[900px]:w-[308px] bg-[#0f172a] h-screen h-[100dvh] max-h-[100dvh] fixed top-0 left-0 flex flex-col z-[200] transition-transform duration-250 ease-[cubic-bezier(0.4,0,0.2,1)] shadow-[4px_0_24px_rgba(0,0,0,0.22)] ${
           sidebarOpen ? 'max-[900px]:translate-x-0' : 'max-[900px]:-translate-x-full'
         } ${desktopCollapsed ? 'min-[901px]:-translate-x-full' : 'min-[901px]:translate-x-0'}`}
       >
@@ -394,7 +403,13 @@ export default function Layout() {
         }`}
       >
         {/* Topbar (.topbar) */}
-        <header className="min-h-[62px] pt-[env(safe-area-inset-top,0px)] py-2 bg-white/95 backdrop-blur-md px-6 max-[900px]:px-3.5 flex items-center justify-between border-b border-slate-200/80 sticky top-0 z-[100] gap-3">
+        <header
+          style={{
+            paddingTop: ehIos ? `calc(${safeTopCss} + 8px)` : undefined,
+            paddingBottom: ehIos ? '10px' : undefined,
+          }}
+          className="min-h-[62px] bg-white/95 backdrop-blur-md px-6 max-[900px]:px-3.5 flex items-center justify-between border-b border-slate-200/80 sticky top-0 z-[100] gap-3"
+        >
           <div className="flex items-center gap-2.5 flex-1 min-w-0">
             <button
               type="button"
