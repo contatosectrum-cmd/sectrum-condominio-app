@@ -162,15 +162,18 @@ final class InterfoneAudioNativo {
         tentativasInicio += 1
 
         let input = engine.inputNode
-        // Cancelamento de eco (AEC) + supressão de ruído nativos do iOS
+        // Cancelamento de eco (AEC) + supressão de ruído nativos do iOS.
+        // Se o motor já falhou algumas vezes, tenta sem o processamento de voz (alguns aparelhos/rotas não suportam).
+        let usarProcessamentoVoz = tentativasInicio <= 3
         do {
-            try input.setVoiceProcessingEnabled(true)
+            try input.setVoiceProcessingEnabled(usarProcessamentoVoz)
         } catch {
             SectrumDiag.log("audio: voice processing indisponível (\(error.localizedDescription))")
         }
 
         let formatoMic = input.outputFormat(forBus: 0)
-        SectrumDiag.log("audio: iniciar tentativa \(tentativasInicio) mic=\(formatoMic.sampleRate)Hz/\(formatoMic.channelCount)ch rota=\(Self.descreverRota())")
+        let sessao = AVAudioSession.sharedInstance()
+        SectrumDiag.log("audio: iniciar tentativa \(tentativasInicio) vp=\(usarProcessamentoVoz) mic=\(formatoMic.sampleRate)Hz/\(formatoMic.channelCount)ch categoria=\(sessao.category.rawValue) permissao=\(AppDelegate.descreverPermissaoMicrofone()) rota=\(Self.descreverRota())")
         guard formatoMic.sampleRate > 0, formatoMic.channelCount > 0 else {
             agendarNovaTentativa(motivo: "microfone sem formato")
             return
@@ -212,6 +215,15 @@ final class InterfoneAudioNativo {
     private func agendarNovaTentativa(motivo: String) {
         SectrumDiag.log("audio: falha ao iniciar (\(motivo))")
         iniciado = false
+        // Desfaz o que foi montado para a próxima tentativa começar limpa (o formato do microfone pode mudar)
+        if tapInstalado {
+            engine.inputNode.removeTap(onBus: 0)
+            tapInstalado = false
+        }
+        if engine.isRunning {
+            engine.stop()
+        }
+        conversorMic = nil
         guard tentativasInicio < 8, !encerrado else {
             SectrumDiag.log("audio: desistiu após \(tentativasInicio) tentativas")
             return

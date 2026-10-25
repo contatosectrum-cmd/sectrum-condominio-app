@@ -74,7 +74,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     func garantirSentinelaBackgroundAtiva() {
         // Durante a conversa nativa a sessão de áudio pertence ao CallKit (.playAndRecord/.voiceChat);
         // trocar para .playback aqui desligaria o microfone no meio da ligação.
-        if audioNativo != nil || audioNativoApp != nil { return }
+        // Com uma chamada tocando/ativa no CallKit a sessão também precisa ficar LIVRE: se o app mantiver
+        // a sessão ativa, o iOS não toca a campainha/vibração e não consegue liberar o microfone ao atender.
+        if audioNativo != nil || audioNativoApp != nil || callUuidAtivo != nil { return }
         do {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
@@ -113,6 +115,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             bgTask = .invalid
         }
         garantirSentinelaBackgroundAtiva()
+        garantirPermissaoMicrofone()
+        SectrumDiag.enviarPendentes()
     }
 
     /**
@@ -301,6 +305,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             cxProvider?.reportCall(with: uuidAntigo, endedAt: Date(), reason: .remoteEnded)
         }
 
+        // Libera a sessão de áudio para o iOS tocar a campainha e vibrar
+        liberarSessaoParaCallKit()
+
         self.callUuidAtivo = uuid
         self.callIdAtivo = callId
         self.chamadaAtivaDict = chamadaDict
@@ -403,13 +410,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         // 2a. Chamada entre apartamentos: conversa 100% NATIVA mantendo a tela de chamada do iOS.
         //     Funciona com a tela bloqueada e com o app fechado (o WebView não tem microfone em background).
         if let dict = chamada, Self.ehChamadaApartamento(dict), let audio = criarAudioNativo(callId: callId) {
-            sentinelaPlayer?.pause()
+            // A sessão precisa estar INATIVA para o CallKit ativá-la com prioridade de ligação (libera o microfone)
+            liberarSessaoParaCallKit()
             configurarSessaoAudioChamada()
             audioNativo = audio
             callUuidAudioNativo = action.callUUID
             audio.aoEncerrarRemotamente = { [weak self] _ in
                 self?.encerrarConversaNativaPorRemoto()
             }
+            SectrumDiag.log("callkit: microfone permissão=\(Self.descreverPermissaoMicrofone())")
 
             // Se o app estiver aberto, avisa o React para NÃO abrir a própria tela/microfone para esta chamada
             let callIdJs = callId.filter { $0.isLetter || $0.isNumber || $0 == "_" || $0 == "-" }
@@ -420,11 +429,20 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 
             action.fulfill()
 
-            // O áudio inicia em provider(_:didActivate:). Fallback caso o iOS não dispare a ativação em 1,5 s.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+            // O áudio inicia em provider(_:didActivate:). Fallback caso o iOS não dispare a ativação em 2,5 s.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
                 guard let a = self?.audioNativo, !a.iniciado else { return }
-                try? AVAudioSession.sharedInstance().setActive(true)
+                SectrumDiag.log("callkit: didActivate não chegou em 2,5s - ativando sessão manualmente")
+                do {
+                    try AVAudioSession.sharedInstance().setActive(true)
+                } catch {
+                    SectrumDiag.log("callkit: setActive manual falhou (\(error.localizedDescription))")
+                }
                 a.iniciar()
+            }
+            // Envia o diagnóstico ao servidor durante a própria chamada (não espera reabrir o app)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
+                SectrumDiag.enviarPendentes()
             }
             return
         }
@@ -580,6 +598,37 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         return InterfoneAudioNativo(callId: callId, baseUrl: baseUrl, token: token)
     }
 
+    /// Para a sentinela e desativa a sessão de áudio do app, deixando o iOS livre para tocar a campainha
+    /// do CallKit e ativar a sessão da ligação com prioridade (necessário para o microfone funcionar ao atender).
+    private func liberarSessaoParaCallKit() {
+        sentinelaPlayer?.stop()
+        do {
+            try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        } catch {
+            SectrumDiag.log("audio: não foi possível liberar a sessão (\(error.localizedDescription))")
+        }
+    }
+
+    static func descreverPermissaoMicrofone() -> String {
+        switch AVAudioSession.sharedInstance().recordPermission {
+        case .granted: return "concedida"
+        case .denied: return "NEGADA"
+        case .undetermined: return "nao_perguntada"
+        @unknown default: return "desconhecida"
+        }
+    }
+
+    /// Pede a permissão do microfone com o app ABERTO. Ao atender pela tela bloqueada o iOS não consegue
+    /// exibir o pedido, e sem permissão a conversa fica muda.
+    func garantirPermissaoMicrofone() {
+        let session = AVAudioSession.sharedInstance()
+        if session.recordPermission == .undetermined {
+            session.requestRecordPermission { concedida in
+                SectrumDiag.log("app: permissão do microfone \(concedida ? "concedida" : "NEGADA") pelo usuário")
+            }
+        }
+    }
+
     private func configurarSessaoAudioChamada() {
         do {
             let session = AVAudioSession.sharedInstance()
@@ -590,9 +639,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     }
 
     private func finalizarAudioNativo() {
+        let tinhaConversa = audioNativo != nil
         audioNativo?.encerrar()
         audioNativo = nil
         callUuidAudioNativo = nil
+        if tinhaConversa {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                SectrumDiag.enviarPendentes()
+            }
+        }
     }
 
     /// A outra ponta desligou (ou a chamada expirou no servidor): fecha a tela de chamada do iOS.
