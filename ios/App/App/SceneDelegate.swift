@@ -49,6 +49,19 @@ class SectrumBridgeViewController: CAPBridgeViewController, WKScriptMessageHandl
             pararToqueInterfoneNativo: function() {
               window.webkit.messageHandlers.SectrumIos.postMessage({ acao: 'encerrarCallKit' });
             },
+            // Conversa entre apartamentos com áudio NATIVO (fone de ouvido + viva-voz) quando o app está aberto
+            iniciarAudioInterfoneNativo: function(callId, modo) {
+              window.webkit.messageHandlers.SectrumIos.postMessage({ acao: 'audioIniciar', callId: callId || '', modo: modo || 'ouvido' });
+            },
+            encerrarAudioInterfoneNativo: function() {
+              window.webkit.messageHandlers.SectrumIos.postMessage({ acao: 'audioEncerrar' });
+            },
+            mudoAudioInterfoneNativo: function(mudo) {
+              window.webkit.messageHandlers.SectrumIos.postMessage({ acao: 'audioMudo', mudo: !!mudo });
+            },
+            saidaAudioInterfoneNativo: function(modo) {
+              window.webkit.messageHandlers.SectrumIos.postMessage({ acao: 'audioSaida', modo: modo || 'ouvido' });
+            },
             temBiometriaNativa: function() { return \(temBio); },
             salvarCredencialBiometriaNativa: function(login, token, usuarioJson) {
               window.webkit.messageHandlers.SectrumIos.postMessage({
@@ -130,6 +143,21 @@ class SectrumBridgeViewController: CAPBridgeViewController, WKScriptMessageHandl
 
         case "encerrarCallKit":
             (UIApplication.shared.delegate as? AppDelegate)?.encerrarChamadaCallKitAtiva()
+
+        case "audioIniciar":
+            let callId = (body["callId"] as? String) ?? ""
+            let viaVoz = ((body["modo"] as? String) ?? "ouvido") == "vivavoz"
+            (UIApplication.shared.delegate as? AppDelegate)?.iniciarAudioInterfoneApp(callId: callId, viaVoz: viaVoz)
+
+        case "audioEncerrar":
+            (UIApplication.shared.delegate as? AppDelegate)?.encerrarAudioInterfoneApp()
+
+        case "audioMudo":
+            (UIApplication.shared.delegate as? AppDelegate)?.mudoAudioInterfoneApp((body["mudo"] as? Bool) ?? false)
+
+        case "audioSaida":
+            let viaVoz = ((body["modo"] as? String) ?? "ouvido") == "vivavoz"
+            (UIApplication.shared.delegate as? AppDelegate)?.saidaAudioInterfoneApp(viaVoz: viaVoz)
 
         case "salvarBiometria":
             let login = normalizarLogin((body["login"] as? String) ?? "")

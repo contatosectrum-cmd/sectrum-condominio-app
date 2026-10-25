@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
   Unlock, X, DoorOpen, Car, Video, RefreshCw, AlertCircle, CheckCircle2, Volume2, VolumeX, Mic, PhoneCall, PhoneOff, Maximize, Minimize2, LayoutGrid, Rows2, Globe,
@@ -7,9 +7,11 @@ import { api, ErroApi } from '../../lib/api';
 import { obterToken, obterTokenInterfone, restaurarSessaoInterfone } from '../../lib/sessao';
 import {
   acionarSireneEmergenciaNativa,
+  callKitTocandoChamada,
   obterUrlWsGo2rtc,
   pararSireneEmergenciaNativa,
   pararToqueInterfoneNativo,
+  temAudioInterfoneNativo,
 } from '../../lib/nativo';
 import {
   iniciarConversaBidirecional,
@@ -1604,14 +1606,16 @@ let wavPulsoChamandoCache: string | null = null;
 let audioPulsoChamandoGlobal: HTMLAudioElement | null = null;
 
 /**
- * Gera em memória um arquivo WAV PCM 16-bit com o pulso clássico de chamada telefônica ("tuuu... tuuu...", 2.8s em loop:
- * 1.0s de tom duplo 425 Hz + 440 Hz com harmônicos audíveis + 1.8s de silêncio).
+ * Gera em memória um arquivo WAV PCM 16-bit com o tom de chamada PADRÃO da telefonia brasileira (Anatel):
+ * tom único de 425 Hz, 1,0 s tocando + 4,0 s de silêncio (ciclo de 5 s em loop) — o mesmo "tuuu... tuuu..." de uma ligação comum.
+ * Antes eram dois tons sobrepostos (425 Hz + 440 Hz com harmônicos) e um segundo pulso sintetizado fora de sincronia,
+ * o que soava como "dois toques" ao mesmo tempo.
  * Por usar HTML5 <audio>, toca alto mesmo com a chave Silencioso (🔕) ativada no iPhone e no Android.
  */
 function gerarWavPulsoChamandoDataUrl(): string {
   if (wavPulsoChamandoCache) return wavPulsoChamandoCache;
   const sampleRate = 16000;
-  const durationSec = 2.8;
+  const durationSec = 5.0;
   const numSamples = Math.floor(sampleRate * durationSec);
   const buffer = new ArrayBuffer(44 + numSamples * 2);
   const view = new DataView(buffer);
@@ -1639,15 +1643,12 @@ function gerarWavPulsoChamandoDataUrl(): string {
   for (let i = 0; i < numSamples; i++) {
     const t = i / sampleRate;
     let sample = 0;
-    // Pulso de 1.0s ("tuuuuu...") seguido de 1.8s de pausa
-    if (t >= 0.02 && t <= 1.02) {
+    // Tom de 1,0s ("tuuuuu...") seguido de 4,0s de silêncio, com rampas suaves de 30 ms (sem estalos)
+    if (t >= 0.0 && t < 1.0) {
       let env = 1.0;
-      if (t < 0.06) env = (t - 0.02) / 0.04;
-      else if (t > 0.96) env = (1.02 - t) / 0.06;
-      const w1 = Math.sin(2 * Math.PI * 425 * t);
-      const w2 = Math.sin(2 * Math.PI * 440 * t);
-      const harm = 0.35 * Math.sin(2 * Math.PI * 850 * t) + 0.15 * Math.sin(2 * Math.PI * 1275 * t);
-      sample = Math.max(-1, Math.min(1, (0.5 * w1 + 0.35 * w2 + harm) * env * 0.92));
+      if (t < 0.03) env = t / 0.03;
+      else if (t > 0.97) env = (1.0 - t) / 0.03;
+      sample = Math.sin(2 * Math.PI * 425 * t) * env * 0.7;
     }
     view.setInt16(44 + i * 2, Math.floor(sample * 32767), true);
   }
@@ -2568,6 +2569,11 @@ export function ModalChamadaInterfoneRecebida({
 
     const tentarPlayAudio = () => {
       if (cancelado) return;
+      // iPhone: a tela nativa (CallKit) já está tocando esta chamada -> não toca uma segunda campainha por cima
+      if (callKitTocandoChamada(chamada.call_id)) {
+        if (!elAudio.paused) elAudio.pause();
+        return;
+      }
       elAudio.play().catch(() => undefined);
     };
     tentarPlayAudio();
@@ -2589,9 +2595,16 @@ export function ModalChamadaInterfoneRecebida({
       } catch {
         // Ignora
       }
+      if (callKitTocandoChamada(chamada.call_id)) {
+        if (!elAudio.paused) elAudio.pause();
+        return;
+      }
       if (elAudio.paused) {
         tentarPlayAudio();
       }
+      // A campainha é UMA só (<audio> em loop). A melodia sintetizada abaixo só toca como reserva,
+      // quando o navegador bloqueou o <audio> — antes as duas tocavam juntas e soavam como "dois toques".
+      if (!elAudio.paused) return;
       try {
         const AudioCtx =
           window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
@@ -2849,7 +2862,10 @@ export function ModalConversaApartamento({
   const [nivelVoz, setNivelVoz] = useState(0);
   const [nivelVozRemota, setNivelVozRemota] = useState(0);
   const [mudo, setMudo] = useState(false);
-  const [modoSaida, setModoSaida] = useState<ModoSaidaAudio>(() => obterModoSaidaAudio());
+  // iPhone (app nativo): áudio da conversa feito pelo iOS, começando no FONE DE OUVIDO como uma ligação comum.
+  // (O WKWebView do iPhone só consegue tocar no viva-voz.)
+  const usarAudioNativo = useMemo(() => temAudioInterfoneNativo(), []);
+  const [modoSaida, setModoSaida] = useState<ModoSaidaAudio>(() => (usarAudioNativo ? 'ouvido' : obterModoSaidaAudio()));
   const [segundosConversa, setSegundosConversa] = useState(0);
   const [pulsoChamada, setPulsoChamada] = useState(1);
   const [pulsoAtivoVisual, setPulsoAtivoVisual] = useState(true);
@@ -2859,6 +2875,10 @@ export function ModalConversaApartamento({
   const mudoRef = useRef<boolean>(false);
   const modoSaidaRef = useRef<ModoSaidaAudio>(modoSaida);
   const jaEncerrandoRef = useRef<boolean>(false);
+  const onStatusMudouRef = useRef(onStatusMudou);
+  useEffect(() => {
+    onStatusMudouRef.current = onStatusMudou;
+  });
 
   useEffect(() => {
     mudoRef.current = mudo;
@@ -2873,12 +2893,23 @@ export function ModalConversaApartamento({
   const alternarModoSaida = async () => {
     const novo: ModoSaidaAudio = modoSaida === 'vivavoz' ? 'ouvido' : 'vivavoz';
     setModoSaida(novo);
+    if (usarAudioNativo) {
+      window.SectrumAndroid?.saidaAudioInterfoneNativo?.(novo);
+      return;
+    }
     if (sessaoMicRef.current) {
       await sessaoMicRef.current.definirModoSaida(novo);
     } else {
       await definirModoSaidaAudio(novo);
     }
   };
+
+  // iPhone (áudio nativo): repassa o "mudo" para o iOS
+  useEffect(() => {
+    if (usarAudioNativo && sessao.status === 'answered') {
+      window.SectrumAndroid?.mudoAudioInterfoneNativo?.(mudo);
+    }
+  }, [usarAudioNativo, mudo, sessao.status]);
 
   // Enquanto está chamando outro apartamento ('ringing'), toca o pulso de chamada telefônica ("tuuu... tuuu...")
   // respeitando o volume mais suave caso o morador tenha selecionado "No Ouvido (Fone)"
@@ -2927,47 +2958,15 @@ export function ModalConversaApartamento({
         // Ignora
       }
 
-      try {
-        const AudioCtx =
-          window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-        if (AudioCtx) {
-          if (!audioCtxGlobal) audioCtxGlobal = new AudioCtx();
-          const ctx = audioCtxGlobal;
-          if (ctx.state === 'suspended') {
-            ctx.resume().catch(() => undefined);
-          }
-          const multVol = modoSaidaRef.current === 'ouvido' ? 0.25 : 1.0;
-          const now = ctx.currentTime;
-          [
-            { f: 425, g: 0.42 * multVol, t: 'sine' as OscillatorType },
-            { f: 440, g: 0.32 * multVol, t: 'sine' as OscillatorType },
-            { f: 850, g: 0.18 * multVol, t: 'triangle' as OscillatorType },
-          ].forEach(({ f, g, t }) => {
-            const osc = ctx.createOscillator();
-            const gain = ctx.createGain();
-            osc.type = t;
-            osc.frequency.setValueAtTime(f, now);
-            gain.gain.setValueAtTime(0.001, now);
-            gain.gain.exponentialRampToValueAtTime(g, now + 0.04);
-            gain.gain.setValueAtTime(g, now + 0.92);
-            gain.gain.exponentialRampToValueAtTime(0.001, now + 1.02);
-            osc.connect(gain);
-            gain.connect(ctx.destination);
-            osc.start(now);
-            osc.stop(now + 1.05);
-          });
-        }
-      } catch {
-        // Ignora
-      }
-
+      // O som é SOMENTE o tom padrão do <audio> em loop (425 Hz, 1s/4s). Não sintetiza um segundo tom por cima.
       timerOff = window.setTimeout(() => {
         if (!cancelado) setPulsoAtivoVisual(false);
-      }, 1050);
+      }, 1000);
     };
 
     dispararCicloPulso();
-    const t = window.setInterval(dispararCicloPulso, 2800);
+    // Mesmo ciclo do tom (5s) para o contador "Nº toque" acompanhar o som
+    const t = window.setInterval(dispararCicloPulso, 5000);
     return () => {
       cancelado = true;
       window.clearInterval(t);
@@ -3003,6 +3002,25 @@ export function ModalConversaApartamento({
     if (sessao.status !== 'answered') return;
     let cancelado = false;
     pararPulsoChamando();
+
+    // iPhone (app nativo): o iOS faz microfone + fone de ouvido/viva-voz (com cancelamento de eco)
+    if (usarAudioNativo) {
+      window.SectrumAndroid?.iniciarAudioInterfoneNativo?.(sessao.call_id, modoSaidaRef.current);
+      window.SectrumAndroid?.mudoAudioInterfoneNativo?.(mudoRef.current);
+      setErroMic('');
+      const aoStatusNativo = (ev: Event) => {
+        const d = (ev as CustomEvent<{ call_id?: string; status?: string } | undefined>).detail;
+        if (d?.call_id === sessao.call_id && d.status) {
+          onStatusMudouRef.current(d.status);
+        }
+      };
+      window.addEventListener('sectrum-audio-nativo-status', aoStatusNativo);
+      return () => {
+        window.removeEventListener('sectrum-audio-nativo-status', aoStatusNativo);
+        window.SectrumAndroid?.encerrarAudioInterfoneNativo?.();
+      };
+    }
+
     desbloquearContextoAudioConversa();
 
     iniciarConversaBidirecional({
@@ -3047,13 +3065,15 @@ export function ModalConversaApartamento({
       sessaoMicRef.current?.encerrar();
       sessaoMicRef.current = null;
     };
-  }, [sessao.call_id, sessao.status]);
+  }, [sessao.call_id, sessao.status, usarAudioNativo]);
 
-  // Loop de escuta da outra unidade em tempo real (a cada 135ms) totalmente independente do envio (Full-Duplex)
+  // Loop de escuta da outra unidade em tempo real (a cada 135ms) totalmente independente do envio (Full-Duplex).
+  // No iPhone com áudio nativo, o iOS toca a voz; aqui só acompanhamos o status da chamada (mais devagar).
   useEffect(() => {
     let cancelado = false;
     let cursor = 0;
     let emReq = false;
+    const somenteStatus = usarAudioNativo;
 
     const cicloEscuta = async () => {
       if (cancelado || emReq) return;
@@ -3072,7 +3092,7 @@ export function ModalConversaApartamento({
         if (typeof r.cursor === 'number' && r.cursor > 0) {
           cursor = r.cursor;
         }
-        if (r.ok && r.audio_b64) {
+        if (!somenteStatus && r.ok && r.audio_b64) {
           reproduzirUlawNoContexto(r.audio_b64);
           setNivelVozRemota(obterNivelVozRecebida());
         }
@@ -3086,12 +3106,12 @@ export function ModalConversaApartamento({
       }
     };
 
-    const timer = window.setInterval(cicloEscuta, 135);
+    const timer = window.setInterval(cicloEscuta, somenteStatus ? 800 : 135);
     return () => {
       cancelado = true;
       window.clearInterval(timer);
     };
-  }, [sessao.call_id, sessao.status, onStatusMudou]);
+  }, [sessao.call_id, sessao.status, onStatusMudou, usarAudioNativo]);
 
   // Se a chamada foi recusada, perdida ou encerrada pela outra ponta, fecha após 1.6s
   useEffect(() => {

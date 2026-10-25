@@ -1,17 +1,90 @@
 import Foundation
+import UIKit
 import AVFoundation
 
 /**
- * Conversa de interfone entre apartamentos 100% NATIVA (Full-Duplex), usada quando a chamada é atendida pela
- * tela nativa do iOS (CallKit) — inclusive com a tela bloqueada ou com o app fechado, situações em que o
- * WKWebView não tem acesso ao microfone.
+ * Trilha de diagnóstico do app iOS: registra os passos das chamadas e qualquer exceção nativa
+ * (ex.: falhas do AVAudioEngine) e envia ao servidor na próxima abertura do app (rota `ios_diagnostico`).
+ * Permite investigar falhas reais nos iPhones dos moradores sem depender do relatório da Apple.
+ */
+enum SectrumDiag {
+    private static let chaveTrilha = "sectrum_diag_trilha"
+    private static let chaveCrash = "sectrum_diag_crash"
+    private static let fila = DispatchQueue(label: "br.seg.vps.cond.sectrum.diag")
+
+    static func log(_ mensagem: String) {
+        let linha = "\(ISO8601DateFormatter().string(from: Date())) \(mensagem)"
+        print("[SectrumiOS] \(mensagem)")
+        fila.sync {
+            var trilha = UserDefaults.standard.stringArray(forKey: chaveTrilha) ?? []
+            trilha.append(linha)
+            if trilha.count > 60 {
+                trilha.removeFirst(trilha.count - 60)
+            }
+            UserDefaults.standard.set(trilha, forKey: chaveTrilha)
+        }
+    }
+
+    /// Captura exceções Objective-C não tratadas (AVFoundation, CallKit...) antes de o app encerrar.
+    static func instalarCapturaDeCrash() {
+        NSSetUncaughtExceptionHandler { excecao in
+            let pilha = excecao.callStackSymbols.prefix(30).joined(separator: "\n")
+            let info = "\(excecao.name.rawValue): \(excecao.reason ?? "-")\n\(pilha)"
+            UserDefaults.standard.set(info, forKey: "sectrum_diag_crash")
+            UserDefaults.standard.synchronize()
+        }
+    }
+
+    /// Envia ao servidor a trilha + eventual crash da execução anterior e limpa o registro local.
+    static func enviarPendentes() {
+        let defaults = UserDefaults.standard
+        let trilha = defaults.stringArray(forKey: chaveTrilha) ?? []
+        let crash = defaults.string(forKey: chaveCrash) ?? ""
+        guard !trilha.isEmpty || !crash.isEmpty,
+              let token = defaults.string(forKey: "sectrum_interfone_token"), !token.isEmpty else { return }
+        let baseUrl = defaults.string(forKey: "sectrum_base_url") ?? "https://cond.vps.seg.br"
+        guard let url = URL(string: "\(baseUrl)/api.php?route=ios_diagnostico") else { return }
+
+        let versao = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?")
+            + " (" + (Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?") + ")"
+        var req = URLRequest(url: url, timeoutInterval: 10)
+        req.httpMethod = "POST"
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: [
+            "versao": versao,
+            "ios": UIDevice.current.systemVersion,
+            "modelo": UIDevice.current.model,
+            "crash": crash,
+            "trilha": trilha,
+        ])
+        URLSession.shared.dataTask(with: req) { _, resp, _ in
+            if (resp as? HTTPURLResponse)?.statusCode == 200 {
+                fila.sync {
+                    defaults.removeObject(forKey: chaveCrash)
+                    defaults.removeObject(forKey: chaveTrilha)
+                }
+            }
+        }.resume()
+    }
+}
+
+/**
+ * Conversa de interfone entre apartamentos 100% NATIVA (Full-Duplex).
+ * Usada em TODAS as conversas entre apartamentos no iPhone:
+ *   - atendidas pela tela nativa do iOS (CallKit) — inclusive com a tela bloqueada ou o app fechado;
+ *   - feitas/atendidas dentro do app (o WKWebView no iPhone só toca no viva-voz e não usa o fone de ouvido).
  *
  * Fala exatamente o mesmo protocolo do React (`src/lib/interfoneAudio.ts`), então o outro lado (Android, iOS
  * ou navegador) não percebe diferença:
  *   - Microfone -> 8000 Hz mono -> ITU-T G.711 µ-law -> Base64 -> POST `morador_interfone_falar` (~180 ms por pacote)
- *   - GET `morador_interfone_escutar` a cada ~140 ms -> µ-law -> PCM -> alto-falante/fone
+ *   - GET `morador_interfone_escutar` a cada ~140 ms -> µ-law -> PCM -> fone de ouvido / viva-voz
  *
- * Usa o processamento de voz do iOS (cancelamento de eco + supressão de ruído), essencial no viva-voz.
+ * Usa o processamento de voz do iOS (cancelamento de eco + supressão de ruído) e o modo `.voiceChat`,
+ * que por padrão toca no FONE DE OUVIDO (como uma ligação comum); o viva-voz é opcional.
+ *
+ * Robustez: o AVAudioEngine lança exceções Objective-C (que derrubam o app e não podem ser capturadas em Swift)
+ * se for usado fora de estado. Por isso toda operação no motor verifica antes se ele está realmente rodando.
  */
 final class InterfoneAudioNativo {
 
@@ -39,8 +112,13 @@ final class InterfoneAudioNativo {
     private var falhasSeguidas = 0
     private var timerEscuta: DispatchSourceTimer?
 
+    // Estado do motor de áudio (main thread)
     private(set) var iniciado = false
+    private var motorAtivo = false
+    private var tapInstalado = false
+    private var tentativasInicio = 0
     private var encerrado = false
+    private var viaVozDesejado = false
 
     /// Quando true envia silêncio (mantém a chamada viva no servidor) em vez da voz do microfone.
     var mudo = false
@@ -71,56 +149,127 @@ final class InterfoneAudioNativo {
 
     // MARK: - Ciclo de vida
 
-    /// Liga microfone + alto-falante. Deve ser chamado depois que o CallKit ativar a AVAudioSession.
+    /// Liga microfone + saída de áudio. Deve ser chamado com a AVAudioSession já ativa (.playAndRecord).
+    /// Se o microfone ainda não estiver disponível (comum logo após o app ser acordado pelo VoIP Push),
+    /// tenta novamente algumas vezes em vez de falhar.
     func iniciar() {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in self?.iniciar() }
+            return
+        }
         guard !iniciado, !encerrado else { return }
         iniciado = true
+        tentativasInicio += 1
 
+        let input = engine.inputNode
+        // Cancelamento de eco (AEC) + supressão de ruído nativos do iOS
         do {
-            let input = engine.inputNode
-            // Cancelamento de eco (AEC) + supressão de ruído nativos do iOS
-            try? input.setVoiceProcessingEnabled(true)
-
-            let formatoMic = input.outputFormat(forBus: 0)
-            guard formatoMic.sampleRate > 0, formatoMic.channelCount > 0 else {
-                throw NSError(domain: "SectrumInterfone", code: 1,
-                              userInfo: [NSLocalizedDescriptionKey: "Microfone indisponível (permissão negada?)"])
-            }
-            conversorMic = AVAudioConverter(from: formatoMic, to: formatoRede)
-
-            engine.attach(player)
-            engine.connect(player, to: engine.mainMixerNode, format: formatoRede)
-
-            input.installTap(onBus: 0, bufferSize: 1024, format: formatoMic) { [weak self] buffer, _ in
-                self?.processarMicrofone(buffer)
-            }
-
-            // Troca de rota (viva-voz / fone / Bluetooth) pode parar o engine: religa automaticamente
-            observadorConfig = NotificationCenter.default.addObserver(
-                forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
-            ) { [weak self] _ in
-                guard let self = self, !self.encerrado else { return }
-                if !self.engine.isRunning {
-                    try? self.engine.start()
-                }
-                if !self.player.isPlaying {
-                    self.player.play()
-                }
-            }
-
-            engine.prepare()
-            try engine.start()
-            player.play()
-            print("[SectrumiOS] Áudio nativo do interfone iniciado (\(formatoMic.sampleRate) Hz) para \(callId)")
+            try input.setVoiceProcessingEnabled(true)
         } catch {
-            print("[SectrumiOS] Falha ao iniciar áudio nativo do interfone: \(error)")
+            SectrumDiag.log("audio: voice processing indisponível (\(error.localizedDescription))")
         }
 
+        let formatoMic = input.outputFormat(forBus: 0)
+        SectrumDiag.log("audio: iniciar tentativa \(tentativasInicio) mic=\(formatoMic.sampleRate)Hz/\(formatoMic.channelCount)ch rota=\(Self.descreverRota())")
+        guard formatoMic.sampleRate > 0, formatoMic.channelCount > 0 else {
+            agendarNovaTentativa(motivo: "microfone sem formato")
+            return
+        }
+
+        if player.engine == nil {
+            engine.attach(player)
+            engine.connect(player, to: engine.mainMixerNode, format: formatoRede)
+        }
+
+        if !tapInstalado {
+            // format: nil => usa exatamente o formato atual do barramento (evita exceção por formato divergente)
+            input.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in
+                self?.processarMicrofone(buffer)
+            }
+            tapInstalado = true
+        }
+
+        engine.prepare()
+        do {
+            try engine.start()
+        } catch {
+            agendarNovaTentativa(motivo: "engine.start: \(error.localizedDescription)")
+            return
+        }
+        guard engine.isRunning else {
+            agendarNovaTentativa(motivo: "engine não está rodando")
+            return
+        }
+
+        motorAtivo = true
+        player.play()
+        aplicarSaida()
+        observarMudancasDeConfiguracao()
         iniciarLoopEscuta()
+        SectrumDiag.log("audio: conversa nativa ATIVA (\(callId))")
     }
 
-    /// Desliga microfone, alto-falante e loops de rede.
+    private func agendarNovaTentativa(motivo: String) {
+        SectrumDiag.log("audio: falha ao iniciar (\(motivo))")
+        iniciado = false
+        guard tentativasInicio < 8, !encerrado else {
+            SectrumDiag.log("audio: desistiu após \(tentativasInicio) tentativas")
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            guard let self = self, !self.encerrado else { return }
+            try? AVAudioSession.sharedInstance().setActive(true)
+            self.iniciar()
+        }
+    }
+
+    private func observarMudancasDeConfiguracao() {
+        guard observadorConfig == nil else { return }
+        // Troca de rota (fone / viva-voz / Bluetooth) pode parar o engine: religa com segurança
+        observadorConfig = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
+        ) { [weak self] _ in
+            guard let self = self, !self.encerrado, self.motorAtivo else { return }
+            SectrumDiag.log("audio: mudança de configuração (rota=\(Self.descreverRota()))")
+            if !self.engine.isRunning {
+                self.engine.prepare()
+                do {
+                    try self.engine.start()
+                } catch {
+                    SectrumDiag.log("audio: falha ao religar engine (\(error.localizedDescription))")
+                    return
+                }
+            }
+            if self.engine.isRunning && !self.player.isPlaying {
+                self.player.play()
+            }
+        }
+    }
+
+    /// Fone de ouvido (padrão, como uma ligação comum) ou viva-voz.
+    func definirViaVoz(_ ativo: Bool) {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in self?.definirViaVoz(ativo) }
+            return
+        }
+        viaVozDesejado = ativo
+        aplicarSaida()
+    }
+
+    private func aplicarSaida() {
+        do {
+            try AVAudioSession.sharedInstance().overrideOutputAudioPort(viaVozDesejado ? .speaker : .none)
+        } catch {
+            SectrumDiag.log("audio: falha ao trocar saída (\(error.localizedDescription))")
+        }
+    }
+
+    /// Desliga microfone, saída de áudio e loops de rede.
     func encerrar() {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in self?.encerrar() }
+            return
+        }
         guard !encerrado else { return }
         encerrado = true
         // Executado na mesma fila serial dos loops de rede: nenhuma requisição nova é criada após a invalidação
@@ -130,23 +279,40 @@ final class InterfoneAudioNativo {
             self.timerEscuta = nil
             self.sessaoHttp.finishTasksAndInvalidate()
         }
-        if iniciado {
-            engine.inputNode.removeTap(onBus: 0)
-            player.stop()
-            engine.stop()
-            try? engine.inputNode.setVoiceProcessingEnabled(false)
-        }
         if let obs = observadorConfig {
             NotificationCenter.default.removeObserver(obs)
             observadorConfig = nil
         }
+        if tapInstalado {
+            engine.inputNode.removeTap(onBus: 0)
+            tapInstalado = false
+        }
+        if motorAtivo {
+            player.stop()
+        }
+        if engine.isRunning {
+            engine.stop()
+        }
+        motorAtivo = false
+        try? AVAudioSession.sharedInstance().overrideOutputAudioPort(.none)
+        SectrumDiag.log("audio: conversa nativa encerrada (\(callId))")
+    }
+
+    static func descreverRota() -> String {
+        AVAudioSession.sharedInstance().currentRoute.outputs.map { $0.portType.rawValue }.joined(separator: ",")
     }
 
     // MARK: - Envio (microfone -> servidor)
 
     /// Executado na thread de áudio: converte para 8 kHz mono e codifica em µ-law.
     private func processarMicrofone(_ buffer: AVAudioPCMBuffer) {
-        guard !encerrado, let conversor = conversorMic, buffer.frameLength > 0 else { return }
+        guard !encerrado, buffer.frameLength > 0, buffer.format.sampleRate > 0 else { return }
+
+        // (Re)cria o conversor se o formato do microfone mudou (ex.: troca para Bluetooth)
+        if conversorMic == nil || conversorMic?.inputFormat != buffer.format {
+            conversorMic = AVAudioConverter(from: buffer.format, to: formatoRede)
+        }
+        guard let conversor = conversorMic else { return }
 
         let razao = formatoRede.sampleRate / buffer.format.sampleRate
         let capacidade = AVAudioFrameCount(Double(buffer.frameLength) * razao) + 64
@@ -170,7 +336,7 @@ final class InterfoneAudioNativo {
         var bytes = [UInt8](repeating: 0xFF, count: n) // 0xFF = silêncio em µ-law
         if !mudo {
             for i in 0..<n {
-                let v = max(-1.0, min(1.0, canal[i]))
+                let v = canal[i].isFinite ? max(-1.0, min(1.0, canal[i])) : 0
                 bytes[i] = Self.linearParaUlaw(Int16(v * 32767.0))
             }
         }
@@ -213,7 +379,7 @@ final class InterfoneAudioNativo {
         }.resume()
     }
 
-    // MARK: - Escuta (servidor -> alto-falante)
+    // MARK: - Escuta (servidor -> fone/viva-voz)
 
     private func iniciarLoopEscuta() {
         fila.async { [weak self] in
@@ -255,7 +421,7 @@ final class InterfoneAudioNativo {
         guard !encerrado else { return }
 
         if http == 401 || http == 403 {
-            encerrarPorRemoto("sem_autorizacao")
+            encerrarPorRemoto("ended")
             return
         }
         guard http == 200, let data = data,
@@ -263,7 +429,7 @@ final class InterfoneAudioNativo {
             // Sem rede por ~25 s seguidos: encerra a chamada
             falhasSeguidas += 1
             if falhasSeguidas > 180 {
-                encerrarPorRemoto("sem_rede")
+                encerrarPorRemoto("ended")
             }
             return
         }
@@ -273,7 +439,10 @@ final class InterfoneAudioNativo {
             cursorEscuta = c
         }
         if let b64 = json["audio_b64"] as? String, !b64.isEmpty, let bytes = Data(base64Encoded: b64) {
-            reproduzir(bytes)
+            let n = bytes.count
+            DispatchQueue.main.async { [weak self] in
+                self?.reproduzir(bytes, frames: n)
+            }
         }
         let status = ((json["call_status"] as? String) ?? "").lowercased()
         if Self.statusFinais.contains(status) {
@@ -281,12 +450,12 @@ final class InterfoneAudioNativo {
         }
     }
 
-    private func reproduzir(_ bytes: Data) {
+    /// Executado na main thread (mesma thread que liga/desliga o motor), evitando usar o player com o motor parado.
+    private func reproduzir(_ bytes: Data, frames n: Int) {
+        guard !encerrado, motorAtivo, engine.isRunning, n > 0 else { return }
         // Se já houver mais de ~0,5 s aguardando para tocar, descarta para não acumular atraso na conversa
-        guard framesNaFila <= 4000 else { return }
-        let n = bytes.count
-        guard n > 0,
-              let buf = AVAudioPCMBuffer(pcmFormat: formatoRede, frameCapacity: AVAudioFrameCount(n)),
+        guard framesNaFilaAtual() <= 4000 else { return }
+        guard let buf = AVAudioPCMBuffer(pcmFormat: formatoRede, frameCapacity: AVAudioFrameCount(n)),
               let canal = buf.floatChannelData?[0] else { return }
         buf.frameLength = AVAudioFrameCount(n)
         bytes.withUnsafeBytes { (p: UnsafeRawBufferPointer) in
@@ -294,22 +463,27 @@ final class InterfoneAudioNativo {
                 canal[i] = Self.tabelaUlaw[Int(p[i])]
             }
         }
-        framesNaFila += n
+        fila.sync { framesNaFila += n }
         player.scheduleBuffer(buf) { [weak self] in
             guard let self = self else { return }
             self.fila.async {
                 self.framesNaFila = max(0, self.framesNaFila - n)
             }
         }
-        if engine.isRunning && !player.isPlaying {
+        if !player.isPlaying {
             player.play()
         }
+    }
+
+    private func framesNaFilaAtual() -> Int {
+        fila.sync { framesNaFila }
     }
 
     private func encerrarPorRemoto(_ motivo: String) {
         guard !encerrado else { return }
         timerEscuta?.cancel()
         timerEscuta = nil
+        SectrumDiag.log("audio: outra ponta encerrou (\(motivo))")
         DispatchQueue.main.async { [weak self] in
             self?.aoEncerrarRemotamente?(motivo)
         }

@@ -34,7 +34,13 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     private var audioNativo: InterfoneAudioNativo?
     private var callUuidAudioNativo: UUID?
 
+    // Conversa nativa iniciada pelo React com o app aberto (ligando ou atendendo dentro do app).
+    // No iPhone o WKWebView só toca no viva-voz; o áudio nativo permite fone de ouvido + viva-voz.
+    private var audioNativoApp: InterfoneAudioNativo?
+
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+        SectrumDiag.instalarCapturaDeCrash()
+        SectrumDiag.log("app: iniciado (estado=\(application.applicationState.rawValue))")
         // O CallKit precisa existir ANTES do PushKit: ao ser acordado por um VoIP Push o iOS exige
         // que a chamada seja reportada imediatamente, senão encerra o app e para de entregar pushes.
         configurarCallKitNativo()
@@ -43,6 +49,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         configurarNotificacoesNativas(application)
         registrarObservadoresCicloDeVida()
         iniciarMonitoramentoInterfoneEmergencia()
+        // Envia ao servidor o diagnóstico (e eventual falha) da execução anterior
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+            SectrumDiag.enviarPendentes()
+        }
         return true
     }
 
@@ -64,7 +74,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     func garantirSentinelaBackgroundAtiva() {
         // Durante a conversa nativa a sessão de áudio pertence ao CallKit (.playAndRecord/.voiceChat);
         // trocar para .playback aqui desligaria o microfone no meio da ligação.
-        if audioNativo != nil { return }
+        if audioNativo != nil || audioNativoApp != nil { return }
         do {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
@@ -300,6 +310,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         cxProvider?.reportNewIncomingCall(with: uuid, update: update) { [weak self] error in
             if let error = error {
                 self?.ultimoStatusCallKit = "err_\((error as NSError).code)"
+                SectrumDiag.log("callkit: erro ao exibir chamada \(callId) (código \((error as NSError).code))")
                 // Ex.: Não Perturbe / Foco bloqueou a tela de chamada: avisa com notificação crítica
                 if self?.callUuidAtivo == uuid {
                     self?.callUuidAtivo = nil
@@ -311,6 +322,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
                 )
             } else {
                 self?.ultimoStatusCallKit = "ringing_ok"
+                SectrumDiag.log("callkit: tocando \(callId)")
+                // O iOS já está tocando: o React (se aberto) não toca a própria campainha por cima
+                let idJs = callId.filter { $0.isLetter || $0.isNumber || $0 == "_" || $0 == "-" }
+                SectrumBridgeViewController.shared?.executarJs("window.__sectrumCallKitTocando = '\(idJs)';")
             }
             completion?()
         }
@@ -375,6 +390,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         let chamada = chamadaAtivaDict
         let callId = callIdAtivo
         let deviceId = (chamada?["device_id"] as? String) ?? "APT:0"
+        SectrumDiag.log("callkit: ATENDER \(callId) (estado app=\(UIApplication.shared.applicationState.rawValue), dict=\(chamada != nil))")
+
+        // Se havia uma conversa iniciada pelo app, ela dá lugar à chamada atendida pelo iOS
+        if audioNativoApp != nil {
+            encerrarAudioInterfoneApp()
+        }
 
         // 1. Sinaliza imediatamente no servidor que a chamada foi atendida
         sinalizarInterfoneServidor(callId: callId, deviceId: deviceId, acao: "answer")
@@ -469,12 +490,84 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     }
 
     func provider(_ provider: CXProvider, didActivate audioSession: AVAudioSession) {
-        // O CallKit entregou a sessão de áudio com prioridade de ligação: liga microfone e alto-falante
+        // O CallKit entregou a sessão de áudio com prioridade de ligação: liga microfone e fone de ouvido
+        SectrumDiag.log("callkit: sessão de áudio ATIVADA (conversa nativa=\(audioNativo != nil))")
         audioNativo?.iniciar()
     }
 
     func provider(_ provider: CXProvider, didDeactivate audioSession: AVAudioSession) {
         // Sessão liberada pelo CallKit; a sentinela é religada ao final da chamada
+        SectrumDiag.log("callkit: sessão de áudio desativada")
+    }
+
+    // MARK: - Conversa nativa iniciada pelo React (app aberto)
+
+    /// Chamado pelo React (ponte `iniciarAudioInterfoneNativo`) quando a conversa entre apartamentos é atendida
+    /// dentro do app (ligando ou recebendo). Usa o mesmo motor nativo do CallKit, com fone de ouvido ou viva-voz.
+    func iniciarAudioInterfoneApp(callId: String, viaVoz: Bool) {
+        guard !callId.isEmpty else { return }
+        // Já existe conversa nativa pelo CallKit para esta mesma chamada: só ajusta a saída
+        if let a = audioNativo, a.callId == callId {
+            a.definirViaVoz(viaVoz)
+            return
+        }
+        if let atual = audioNativoApp {
+            if atual.callId == callId {
+                atual.definirViaVoz(viaVoz)
+                return
+            }
+            atual.encerrar()
+            audioNativoApp = nil
+        }
+        guard let audio = criarAudioNativo(callId: callId) else {
+            SectrumDiag.log("app-audio: sem sessão salva para iniciar \(callId)")
+            return
+        }
+        SectrumDiag.log("app-audio: iniciar \(callId) viaVoz=\(viaVoz)")
+        sentinelaPlayer?.pause()
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetooth])
+            try session.setActive(true)
+        } catch {
+            SectrumDiag.log("app-audio: erro na sessão de áudio (\(error.localizedDescription))")
+        }
+        audioNativoApp = audio
+        audio.aoEncerrarRemotamente = { [weak self] status in
+            // Avisa o React para fechar a tela de conversa
+            let idJs = callId.filter { $0.isLetter || $0.isNumber || $0 == "_" || $0 == "-" }
+            let stJs = status.filter { $0.isLetter || $0 == "_" }
+            SectrumBridgeViewController.shared?.executarJs(
+                "window.dispatchEvent(new CustomEvent('sectrum-audio-nativo-status', { detail: { call_id: '\(idJs)', status: '\(stJs)' } }));"
+            )
+            self?.encerrarAudioInterfoneApp()
+        }
+        audio.definirViaVoz(viaVoz)
+        audio.iniciar()
+    }
+
+    func encerrarAudioInterfoneApp() {
+        guard let audio = audioNativoApp else { return }
+        SectrumDiag.log("app-audio: encerrar \(audio.callId)")
+        audio.encerrar()
+        audioNativoApp = nil
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+            guard let self = self, self.audioNativo == nil, self.audioNativoApp == nil else { return }
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            self.garantirSentinelaBackgroundAtiva()
+        }
+    }
+
+    func mudoAudioInterfoneApp(_ mudo: Bool) {
+        audioNativoApp?.mudo = mudo
+    }
+
+    func saidaAudioInterfoneApp(viaVoz: Bool) {
+        if let a = audioNativoApp {
+            a.definirViaVoz(viaVoz)
+        } else {
+            audioNativo?.definirViaVoz(viaVoz)
+        }
     }
 
     // MARK: - Conversa nativa (apartamento <-> apartamento)
@@ -554,6 +647,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         let deviceId = (d["device_id"] as? String) ?? "APT:0"
         let tipoChamada = (d["tipo_chamada"] as? String) ?? "apartamento"
         let callId = callIdRecebido.isEmpty ? "voip_\(UUID().uuidString)" : callIdRecebido
+        SectrumDiag.log("voip: push recebido \(callId) (estado app=\(UIApplication.shared.applicationState.rawValue))")
 
         let chamada: [String: Any] = [
             "call_id": callId,

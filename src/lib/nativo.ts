@@ -16,6 +16,11 @@ export interface SectrumAndroidBridge {
   autenticarBiometriaNativa?: (login: string, titulo: string, subtitulo: string) => void;
   solicitarOtimizacaoBateria?: () => void;
   otimizacaoBateriaIgnorada?: () => boolean;
+  /** iOS: conversa entre apartamentos com áudio nativo (fone de ouvido + viva-voz). */
+  iniciarAudioInterfoneNativo?: (callId: string, modo: 'ouvido' | 'vivavoz') => void;
+  encerrarAudioInterfoneNativo?: () => void;
+  mudoAudioInterfoneNativo?: (mudo: boolean) => void;
+  saidaAudioInterfoneNativo?: (modo: 'ouvido' | 'vivavoz') => void;
 }
 
 declare global {
@@ -26,7 +31,19 @@ declare global {
       getPlatform?: () => string;
     };
     __sectrumOnBiometricResult?: (sucesso: boolean, payloadJsonOuErro: string) => void;
+    /** iOS: call_id da chamada que a tela nativa (CallKit) já está tocando. */
+    __sectrumCallKitTocando?: string;
   }
+}
+
+/** True quando o app iOS nativo faz o áudio da conversa entre apartamentos (fone de ouvido + viva-voz). */
+export function temAudioInterfoneNativo(): boolean {
+  return typeof window !== 'undefined' && typeof window.SectrumAndroid?.iniciarAudioInterfoneNativo === 'function';
+}
+
+/** True quando a tela nativa do iOS (CallKit) já está tocando esta chamada (o app não toca campainha por cima). */
+export function callKitTocandoChamada(callId: string | undefined | null): boolean {
+  return !!callId && typeof window !== 'undefined' && window.__sectrumCallKitTocando === callId;
 }
 
 const URL_PRODUCAO_PADRAO = 'https://cond.vps.seg.br';
