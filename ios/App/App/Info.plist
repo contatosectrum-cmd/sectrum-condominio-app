@@ -24,16 +24,21 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>NSCameraUsageDescription</key>
 	<string>O Sectrum utiliza a câmera para o seu cadastro de reconhecimento facial da portaria e leitura de QR Codes.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>O Sectrum utiliza o microfone para você conversar pelo interfone com a portaria e com outros apartamentos.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>O Sectrum utiliza a galeria de fotos para você selecionar sua foto de cadastro facial ou anexar comprovantes e imagens em ocorrências.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>O Sectrum permite salvar convites QR Code de visitantes na sua galeria de fotos para fácil compartilhamento.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>O Sectrum utiliza o Face ID para acesso rápido e seguro ao painel do seu condomínio.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>
-		<string>voip</string>
 		<string>fetch</string>
 		<string>remote-notification</string>
 	</array>
@@ -62,7 +67,7 @@
 	<string>Main</string>
 	<key>UIRequiredDeviceCapabilities</key>
 	<array>
-		<string>armv7</string>
+		<string>arm64</string>
 	</array>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
