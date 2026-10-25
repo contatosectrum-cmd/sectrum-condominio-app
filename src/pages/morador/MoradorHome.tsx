@@ -2005,8 +2005,7 @@ export function ModalAlertaEmergenciaAtiva({
   useEffect(() => {
     const elSirene = obterAudioSireneEmergencia();
     if (silenciado) {
-      elSirene.pause();
-      elSirene.currentTime = 0;
+      pararSireneEmergencia();
       try {
         if ('vibrate' in navigator) navigator.vibrate(0);
       } catch {}
@@ -2292,12 +2291,16 @@ export function ModalAlertaEmergenciaAtiva({
               type="button"
               disabled={enviandoAcao !== null}
               onClick={onEncerrarAlerta}
-              className="w-full py-3 px-4 rounded-2xl bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 font-extrabold text-xs sm:text-sm flex items-center justify-center gap-2 cursor-pointer transition"
+              className={`w-full py-3.5 px-4 rounded-2xl font-black text-sm sm:text-base flex items-center justify-center gap-2 cursor-pointer transition shadow-xl ${
+                emergencia.sou_autor
+                  ? 'bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 text-slate-950 shadow-emerald-500/30'
+                  : 'bg-slate-800 hover:bg-slate-700 border border-slate-500 text-white'
+              }`}
             >
               {enviandoAcao === 'encerrar'
                 ? '⏳ Encerrando alerta...'
                 : emergencia.sou_autor
-                  ? '✅ Situação Controlada / Cancelar Meu Alerta de Emergência'
+                  ? '🛑 PARAR ALARME / CANCELAR EMERGÊNCIA'
                   : '✅ Situação Controlada / Encerrar Alerta de Emergência'}
             </button>
           </div>
@@ -4550,10 +4553,48 @@ export function MonitorGlobalInterfone() {
   const [chamadaEmCurso, setChamadaEmCurso] = useState<ChamadaInterfone | null>(null);
   const [abrindoDireto, setAbrindoDireto] = useState<string | null>(null);
   const [emergenciaAtiva, setEmergenciaAtiva] = useState<AlertaEmergenciaAtivo | null>(null);
-  const [emergenciaSilenciadaId, setEmergenciaSilenciadaId] = useState<number | null>(null);
+  const [emergenciaSilenciadaId, setEmergenciaSilenciadaId] = useState<number | null>(() => {
+    try {
+      const v = Number(localStorage.getItem('sectrum_emergencia_silenciada_id') || 0);
+      return v > 0 ? v : null;
+    } catch {
+      return null;
+    }
+  });
   const [enviandoAcaoEmergencia, setEnviandoAcaoEmergencia] = useState<string | null>(null);
   const chamadasIgnoradasRef = useRef<Set<string>>(new Set());
-  const emergenciasEncerradasLocalRef = useRef<Set<number>>(new Set());
+  const emergenciaSilenciadaRef = useRef<number | null>(emergenciaSilenciadaId);
+  const emergenciasEncerradasLocalRef = useRef<Set<number>>(
+    new Set(
+      (() => {
+        try {
+          const arr = JSON.parse(localStorage.getItem('sectrum_emergencias_encerradas') || '[]');
+          return Array.isArray(arr) ? arr.map(Number).filter(Boolean) : [];
+        } catch {
+          return [];
+        }
+      })(),
+    ),
+  );
+
+  useEffect(() => {
+    emergenciaSilenciadaRef.current = emergenciaSilenciadaId;
+    try {
+      if (emergenciaSilenciadaId) {
+        localStorage.setItem('sectrum_emergencia_silenciada_id', String(emergenciaSilenciadaId));
+      } else {
+        localStorage.removeItem('sectrum_emergencia_silenciada_id');
+      }
+    } catch {}
+  }, [emergenciaSilenciadaId]);
+
+  const registrarEmergenciaEncerradaLocal = (id: number) => {
+    emergenciasEncerradasLocalRef.current.add(id);
+    try {
+      const lista = Array.from(emergenciasEncerradasLocalRef.current).slice(-30);
+      localStorage.setItem('sectrum_emergencias_encerradas', JSON.stringify(lista));
+    } catch {}
+  };
 
   // Nas rotas /morador e /morador/interfone (quando logado), o próprio componente da página já renderiza o modal de interfone
   const paginaJaMonitora =
@@ -4600,7 +4641,7 @@ export function MonitorGlobalInterfone() {
         }
         const em = r.emergencia;
         if (em && em.status === 'ativo' && !emergenciasEncerradasLocalRef.current.has(em.id)) {
-          if (em.furar_nao_perturbe !== false) {
+          if (em.furar_nao_perturbe !== false && emergenciaSilenciadaRef.current !== em.id) {
             acionarSireneEmergenciaBackground(true);
           }
           setEmergenciaAtiva((atual) => {
@@ -4629,7 +4670,12 @@ export function MonitorGlobalInterfone() {
             return em;
           });
         } else {
-          setEmergenciaAtiva(null);
+          setEmergenciaAtiva((atual) => {
+            if (atual) {
+              pararSireneEmergencia();
+            }
+            return null;
+          });
         }
       } catch {
         // Ignora
@@ -4763,6 +4809,8 @@ export function MonitorGlobalInterfone() {
       restaurarSessaoInterfone();
     }
     const idAlvo = emergenciaAtiva.id;
+    setEmergenciaSilenciadaId(idAlvo);
+    registrarEmergenciaEncerradaLocal(idAlvo);
     pararSireneEmergencia();
     setEnviandoAcaoEmergencia('encerrar');
     try {
@@ -4772,11 +4820,9 @@ export function MonitorGlobalInterfone() {
           acao: 'encerrar',
         },
       });
-      emergenciasEncerradasLocalRef.current.add(idAlvo);
       setEmergenciaAtiva(null);
     } catch {
       // Caso seja vizinho apenas fechando na própria tela após socorro
-      emergenciasEncerradasLocalRef.current.add(idAlvo);
       setEmergenciaAtiva(null);
     } finally {
       setEnviandoAcaoEmergencia(null);
