@@ -72,47 +72,23 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
      * para manter o processo iOS acordado em background com UIBackgroundModes=audio.
      */
     private static func gerarWavSilenciosoData() -> Data {
-        let sampleRate: UInt32 = 8000
-        let numSamples: UInt32 = 8000
-        let dataSize: UInt32 = numSamples * 2
-        let fileSize: UInt32 = 36 + dataSize
-
-        var data = Data(capacity: Int(44 + dataSize))
-        data.append(contentsOf: [0x52, 0x49, 0x46, 0x46]) // "RIFF"
-        var leFileSize = fileSize.littleEndian
-        data.append(Data(bytes: &leFileSize, count: 4))
-        data.append(contentsOf: [0x57, 0x41, 0x56, 0x45]) // "WAVE"
-        data.append(contentsOf: [0x66, 0x6D, 0x74, 0x20]) // "fmt "
-
-        var fmtSize: UInt32 = 16.littleEndian
-        var audioFormat: UInt16 = 1.littleEndian
-        var numChannels: UInt16 = 1.littleEndian
-        var sr = sampleRate.littleEndian
-        var byteRate = (sampleRate * 2).littleEndian
-        var blockAlign: UInt16 = 2.littleEndian
-        var bitsPerSample: UInt16 = 16.littleEndian
-
-        data.append(Data(bytes: &fmtSize, count: 4))
-        data.append(Data(bytes: &audioFormat, count: 2))
-        data.append(Data(bytes: &numChannels, count: 2))
-        data.append(Data(bytes: &sr, count: 4))
-        data.append(Data(bytes: &byteRate, count: 4))
-        data.append(Data(bytes: &blockAlign, count: 2))
-        data.append(Data(bytes: &bitsPerSample, count: 2))
-
-        data.append(contentsOf: [0x64, 0x61, 0x74, 0x61]) // "data"
-        var leDataSize = dataSize.littleEndian
-        data.append(Data(bytes: &leDataSize, count: 4))
-
-        var samplePos: Int16 = 1.littleEndian
-        var sampleNeg: Int16 = (-1).littleEndian
-        for i in 0..<numSamples {
-            if i % 2 == 0 {
-                data.append(Data(bytes: &samplePos, count: 2))
-            } else {
-                data.append(Data(bytes: &sampleNeg, count: 2))
-            }
-        }
+        let header: [UInt8] = [
+            0x52, 0x49, 0x46, 0x46, // "RIFF"
+            0xA4, 0x3E, 0x00, 0x00, // 16036
+            0x57, 0x41, 0x56, 0x45, // "WAVE"
+            0x66, 0x6D, 0x74, 0x20, // "fmt "
+            0x10, 0x00, 0x00, 0x00, // 16
+            0x01, 0x00,             // PCM = 1
+            0x01, 0x00,             // Channels = 1
+            0x40, 0x1F, 0x00, 0x00, // 8000 Hz
+            0x80, 0x3E, 0x00, 0x00, // 16000 B/s
+            0x02, 0x00,             // BlockAlign = 2
+            0x10, 0x00,             // 16-bit
+            0x64, 0x61, 0x74, 0x61, // "data"
+            0x80, 0x3E, 0x00, 0x00  // 16000 bytes
+        ]
+        var data = Data(header)
+        data.append(Data(repeating: 0, count: 16000))
         return data
     }
 
