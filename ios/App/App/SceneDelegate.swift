@@ -118,6 +118,7 @@ class SectrumBridgeViewController: CAPBridgeViewController, WKScriptMessageHandl
             if !token.isEmpty {
                 defaults.set(token, forKey: "sectrum_interfone_token")
                 defaults.set(baseUrl, forKey: "sectrum_base_url")
+                (UIApplication.shared.delegate as? AppDelegate)?.garantirSentinelaBackgroundAtiva()
             }
 
         case "encerrarCallKit":
@@ -190,6 +191,18 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         window?.makeKeyAndVisible()
 
         SceneDelegateProxy.shared.scene(scene, willConnectTo: session, options: connectionOptions)
+    }
+
+    func sceneWillResignActive(_ scene: UIScene) {
+        (UIApplication.shared.delegate as? AppDelegate)?.aoEntrarEmBackground()
+    }
+
+    func sceneDidEnterBackground(_ scene: UIScene) {
+        (UIApplication.shared.delegate as? AppDelegate)?.aoEntrarEmBackground()
+    }
+
+    func sceneWillEnterForeground(_ scene: UIScene) {
+        (UIApplication.shared.delegate as? AppDelegate)?.aoVoltarParaForeground()
     }
 
     func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {

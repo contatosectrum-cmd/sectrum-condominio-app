@@ -1849,6 +1849,15 @@ function gerarWavSentinelaNaoPerturbeDataUrl(): string {
 
 export function definirModoFurarNaoPerturbe(ativo: boolean): void {
   furarNaoPerturbeCondominioAtivo = ativo;
+  // No App Nativo iOS, o próprio AppDelegate.swift mantém o AVAudioPlayer nativo em segundo plano.
+  // Evita que o processo WebContent do WKWebView roube a sessão de áudio nativa ao bloquear a tela.
+  if (
+    typeof document !== 'undefined' &&
+    (document.documentElement.classList.contains('sectrum-ios-native') ||
+      window.Capacitor?.getPlatform?.() === 'ios')
+  ) {
+    return;
+  }
   try {
     if (!ativo && audioSentinelaDndGlobal && !audioSentinelaDndGlobal.paused) {
       audioSentinelaDndGlobal.pause();

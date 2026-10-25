@@ -19,29 +19,36 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     private var callIdAtivo: String = ""
     private var chamadaAtivaDict: [String: Any]?
     private var chamadaAtendida: Bool = false
+    private var ultimoStatusCallKit: String = "idle"
 
     private var ultimoCallIdNotificado: String = ""
     private var ultimaEmergenciaIdNotificada: Int = 0
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        configurarSessaoAudioNativa()
+        garantirSentinelaBackgroundAtiva()
         configurarCallKitNativo()
         configurarNotificacoesNativas(application)
+        registrarObservadoresCicloDeVida()
         iniciarMonitoramentoInterfoneEmergencia()
         return true
     }
 
-    private func configurarSessaoAudioNativa() {
-        do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
-            try session.setActive(true)
-        } catch {
-            print("[SectrumiOS] Falha ao configurar AVAudioSession: \(error)")
+    private func registrarObservadoresCicloDeVida() {
+        let nc = NotificationCenter.default
+        nc.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.aoEntrarEmBackground()
+        }
+        nc.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.aoEntrarEmBackground()
+        }
+        nc.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] _ in
+            if UIApplication.shared.applicationState != .active {
+                self?.garantirSentinelaBackgroundAtiva()
+            }
         }
     }
 
-    private func iniciarSentinelaBackground() {
+    func garantirSentinelaBackgroundAtiva() {
         do {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
@@ -50,26 +57,41 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
                 let wavData = Self.gerarWavSilenciosoData()
                 sentinelaPlayer = try AVAudioPlayer(data: wavData)
                 sentinelaPlayer?.numberOfLoops = -1
-                sentinelaPlayer?.volume = 0.01
+                sentinelaPlayer?.volume = 0.02
                 sentinelaPlayer?.prepareToPlay()
             }
-            if sentinelaPlayer?.isPlaying == false {
+            if sentinelaPlayer?.isPlaying != true {
                 sentinelaPlayer?.play()
             }
         } catch {
-            print("[SectrumiOS] Erro ao iniciar sentinela background: \(error)")
+            print("[SectrumiOS] Erro ao ativar sentinela background: \(error)")
         }
     }
 
-    private func pararSentinelaBackground() {
-        if sentinelaPlayer?.isPlaying == true {
-            sentinelaPlayer?.pause()
+    func aoEntrarEmBackground() {
+        garantirSentinelaBackgroundAtiva()
+        let app = UIApplication.shared
+        if bgTask == .invalid {
+            bgTask = app.beginBackgroundTask(withName: "SectrumVoipGuard") { [weak self] in
+                if let task = self?.bgTask, task != .invalid {
+                    app.endBackgroundTask(task)
+                    self?.bgTask = .invalid
+                }
+            }
         }
+    }
+
+    func aoVoltarParaForeground() {
+        if bgTask != .invalid {
+            UIApplication.shared.endBackgroundTask(bgTask)
+            bgTask = .invalid
+        }
+        garantirSentinelaBackgroundAtiva()
     }
 
     /**
-     * Gera um WAV PCM 8kHz mono de 1 segundo com amplitude 1 LSB (-90 dB, inaudível)
-     * para manter o processo iOS acordado em background com UIBackgroundModes=audio.
+     * Gera um WAV PCM 8kHz mono de 1 segundo com onda não-zero de ±4 LSB (-78 dB, 100% inaudível)
+     * para evitar que o detector de silêncio digital do coreaudiod suspenda o processo em tela bloqueada.
      */
     private static func gerarWavSilenciosoData() -> Data {
         let header: [UInt8] = [
@@ -88,12 +110,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             0x80, 0x3E, 0x00, 0x00  // 16000 bytes
         ]
         var data = Data(header)
-        data.append(Data(repeating: 0, count: 16000))
+        let padrao: [UInt8] = [0x04, 0x00, 0xFC, 0xFF]
+        for _ in 0..<4000 {
+            data.append(contentsOf: padrao)
+        }
         return data
     }
 
     private func configurarCallKitNativo() {
-        let config = CXProviderConfiguration(localizedName: "Sectrum Condomínio")
+        let config = CXProviderConfiguration()
         config.supportsVideo = true
         config.maximumCallsPerCallGroup = 1
         config.maximumCallGroups = 1
@@ -127,12 +152,18 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     }
 
     private func verificarServidorEmBackground() {
+        if UIApplication.shared.applicationState != .active {
+            garantirSentinelaBackgroundAtiva()
+        }
+
         let defaults = UserDefaults.standard
         guard let token = defaults.string(forKey: "sectrum_interfone_token"), !token.isEmpty else { return }
         let baseUrl = defaults.string(forKey: "sectrum_base_url") ?? "https://cond.vps.seg.br"
+        let bgState = UIApplication.shared.applicationState.rawValue
+        let ckInfo = ultimoStatusCallKit.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "idle"
 
         // 1. Verifica Interfone
-        if let urlCall = URL(string: "\(baseUrl)/api.php?route=morador_interfone_status") {
+        if let urlCall = URL(string: "\(baseUrl)/api.php?route=morador_interfone_status&ios_bg=\(bgState)&ck=\(ckInfo)") {
             var req = URLRequest(url: urlCall, timeoutInterval: 3.5)
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             req.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -151,6 +182,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
                             self.callUuidAtivo = nil
                             self.callIdAtivo = ""
                             self.chamadaAtivaDict = nil
+                            self.ultimoStatusCallKit = "ended"
                         }
                     }
                     return
@@ -212,6 +244,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         self.callIdAtivo = callId
         self.chamadaAtivaDict = chamadaDict
         self.chamadaAtendida = false
+        self.ultimoStatusCallKit = "reporting"
 
         let update = CXCallUpdate()
         update.localizedCallerName = "\(origemNome)"
@@ -224,12 +257,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 
         cxProvider?.reportNewIncomingCall(with: novoUuid, update: update) { [weak self] error in
             if let error = error {
-                print("[SectrumiOS] Erro ao exibir CallKit: \(error)")
+                self?.ultimoStatusCallKit = "err_\((error as NSError).code)"
                 self?.dispararNotificacaoLocalCritica(
                     id: "sectrum-call-\(callId)",
                     titulo: "📲 CHAMADA DE INTERFONE — \(origemNome)",
                     corpo: "🔴 Chamando \(unidade) agora! Toque para atender."
                 )
+            } else {
+                self?.ultimoStatusCallKit = "ringing_ok"
             }
         }
     }
@@ -257,6 +292,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 
     func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
         chamadaAtendida = true
+        ultimoStatusCallKit = "answered"
         let chamada = chamadaAtivaDict
         let callId = callIdAtivo
         let deviceId = (chamada?["device_id"] as? String) ?? "APT:0"
@@ -288,6 +324,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in
             self?.cxProvider?.reportCall(with: uuid, endedAt: Date(), reason: .answeredElsewhere)
             self?.callUuidAtivo = nil
+            self?.garantirSentinelaBackgroundAtiva()
         }
     }
 
@@ -296,6 +333,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         let deviceId = (chamadaAtivaDict?["device_id"] as? String) ?? "APT:0"
 
         if !chamadaAtendida && !callId.isEmpty {
+            ultimoStatusCallKit = "rejected"
             sinalizarInterfoneServidor(callId: callId, deviceId: deviceId, acao: "reject")
             let js = "window.dispatchEvent(new CustomEvent('sectrum-callkit-recusar', { detail: { call_id: '\(callId)' } }));"
             SectrumBridgeViewController.shared?.executarJs(js)
@@ -306,6 +344,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         chamadaAtivaDict = nil
         chamadaAtendida = false
         action.fulfill()
+        garantirSentinelaBackgroundAtiva()
     }
 
     private func sinalizarInterfoneServidor(callId: String, deviceId: String, acao: String) {
@@ -344,7 +383,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 willPresent notification: UNNotification,
                                 withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        // Se uma chamada CallKit estiver ativa, suprime banners duplicados de texto
         if callUuidAtivo != nil {
             completionHandler([])
             return
@@ -354,25 +392,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         } else {
             completionHandler([.alert, .sound])
         }
-    }
-
-    func applicationDidEnterBackground(_ application: UIApplication) {
-        iniciarSentinelaBackground()
-        bgTask = application.beginBackgroundTask(withName: "SectrumVoipGuard") { [weak self] in
-            if let task = self?.bgTask, task != .invalid {
-                application.endBackgroundTask(task)
-                self?.bgTask = .invalid
-            }
-        }
-    }
-
-    func applicationWillEnterForeground(_ application: UIApplication) {
-        if bgTask != .invalid {
-            application.endBackgroundTask(bgTask)
-            bgTask = .invalid
-        }
-        pararSentinelaBackground()
-        configurarSessaoAudioNativa()
     }
 
     func application(_ application: UIApplication,
