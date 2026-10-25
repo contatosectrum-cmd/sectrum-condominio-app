@@ -4032,9 +4032,12 @@ export default function MoradorHome() {
     };
     window.addEventListener('sectrum-callkit-atender', aoCallKitAtender);
     window.addEventListener('sectrum-callkit-recusar', aoCallKitRecusar);
+    // iOS: chamada entre apartamentos atendida na tela nativa (CallKit) com áudio 100% nativo -> o WebView não abre microfone/tela própria
+    window.addEventListener('sectrum-callkit-atendida-nativa', aoCallKitRecusar);
     return () => {
       window.removeEventListener('sectrum-callkit-atender', aoCallKitAtender);
       window.removeEventListener('sectrum-callkit-recusar', aoCallKitRecusar);
+      window.removeEventListener('sectrum-callkit-atendida-nativa', aoCallKitRecusar);
     };
   }, []);
 
@@ -4991,9 +4994,12 @@ export function MonitorGlobalInterfone() {
 
     window.addEventListener('sectrum-callkit-atender', aoCallKitAtender);
     window.addEventListener('sectrum-callkit-recusar', aoCallKitRecusar);
+    // iOS: chamada entre apartamentos atendida na tela nativa (CallKit) com áudio 100% nativo -> o WebView não abre microfone/tela própria
+    window.addEventListener('sectrum-callkit-atendida-nativa', aoCallKitRecusar);
     return () => {
       window.removeEventListener('sectrum-callkit-atender', aoCallKitAtender);
       window.removeEventListener('sectrum-callkit-recusar', aoCallKitRecusar);
+      window.removeEventListener('sectrum-callkit-atendida-nativa', aoCallKitRecusar);
     };
   }, [atender]);
 

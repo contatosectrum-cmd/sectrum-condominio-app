@@ -119,7 +119,14 @@ class SectrumBridgeViewController: CAPBridgeViewController, WKScriptMessageHandl
                 defaults.set(token, forKey: "sectrum_interfone_token")
                 defaults.set(baseUrl, forKey: "sectrum_base_url")
                 (UIApplication.shared.delegate as? AppDelegate)?.garantirSentinelaBackgroundAtiva()
+                // Registra este iPhone para receber VoIP Push (tocar com o app fechado / tela bloqueada)
+                (UIApplication.shared.delegate as? AppDelegate)?.enviarVoipTokenAoServidor()
             }
+
+        case "limparSessao":
+            // Logout: este iPhone deixa de tocar as chamadas de interfone do usuário que saiu
+            (UIApplication.shared.delegate as? AppDelegate)?.removerVoipTokenDoServidor()
+            defaults.removeObject(forKey: "sectrum_interfone_token")
 
         case "encerrarCallKit":
             (UIApplication.shared.delegate as? AppDelegate)?.encerrarChamadaCallKitAtiva()
