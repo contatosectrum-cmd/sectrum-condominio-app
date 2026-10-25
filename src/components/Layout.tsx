@@ -2,7 +2,7 @@ import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import {
   LogOut, Menu, Building2, Bell, Download, LayoutDashboard,
-  PanelLeftClose, PanelLeftOpen, Maximize2, Minimize2,
+  PanelLeftClose, PanelLeftOpen, Maximize2, Minimize2, X,
 } from 'lucide-react';
 import { menuDoUsuario, itemDoCaminho } from '../lib/menu';
 import { sair, selecionarCondominio, useSessao } from '../lib/useSessao';
@@ -240,32 +240,42 @@ export default function Layout() {
 
       {/* SIDEBAR (largura ampliada e itens maiores para facilitar leitura e toque no celular e desktop) */}
       <aside
-        className={`w-[284px] max-[900px]:w-[308px] bg-[#0f172a] h-screen h-[100dvh] max-h-[100dvh] fixed top-0 left-0 flex flex-col z-[200] transition-transform duration-250 ease-[cubic-bezier(0.4,0,0.2,1)] shadow-[4px_0_24px_rgba(0,0,0,0.22)] ${
+        className={`w-[284px] max-[900px]:w-[308px] bg-[#0f172a] h-screen h-[100dvh] max-h-[100dvh] fixed top-0 left-0 flex flex-col z-[200] pt-[env(safe-area-inset-top,0px)] pb-[env(safe-area-inset-bottom,0px)] transition-transform duration-250 ease-[cubic-bezier(0.4,0,0.2,1)] shadow-[4px_0_24px_rgba(0,0,0,0.22)] ${
           sidebarOpen ? 'max-[900px]:translate-x-0' : 'max-[900px]:-translate-x-full'
         } ${desktopCollapsed ? 'min-[901px]:-translate-x-full' : 'min-[901px]:translate-x-0'}`}
       >
         {/* Marca (.sidebar-brand) */}
-        <div className="px-5 h-[66px] flex items-center gap-3 border-b border-white/[0.08] shrink-0">
-          <div className="w-[40px] h-[40px] bg-[#2563eb] rounded-[11px] flex items-center justify-center shrink-0 shadow-md shadow-blue-600/30">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="text-white w-[21px] h-[21px]"
-            >
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-            </svg>
+        <div className="px-5 h-[66px] flex items-center justify-between gap-3 border-b border-white/[0.08] shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-[40px] h-[40px] bg-[#2563eb] rounded-[11px] flex items-center justify-center shrink-0 shadow-md shadow-blue-600/30">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="text-white w-[21px] h-[21px]"
+              >
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+              </svg>
+            </div>
+            <div className="text-[1.08rem] font-extrabold text-white tracking-[-0.3px] leading-[1.15]">
+              Sectrum
+              <small className="block text-[0.76rem] font-medium text-white/45 tracking-normal">
+                Gestão Condominial
+              </small>
+            </div>
           </div>
-          <div className="text-[1.08rem] font-extrabold text-white tracking-[-0.3px] leading-[1.15]">
-            Sectrum
-            <small className="block text-[0.76rem] font-medium text-white/45 tracking-normal">
-              Gestão Condominial
-            </small>
-          </div>
+          <button
+            type="button"
+            onClick={() => setSidebarOpen(false)}
+            className="min-[901px]:hidden p-2 rounded-xl bg-white/[0.08] text-white/80 hover:text-white active:bg-white/[0.18] transition-colors cursor-pointer touch-manipulation"
+            aria-label="Fechar Menu"
+          >
+            <X size={20} />
+          </button>
         </div>
 
         {/* User card (.sidebar-user) */}
@@ -384,11 +394,12 @@ export default function Layout() {
         }`}
       >
         {/* Topbar (.topbar) */}
-        <header className="h-[62px] bg-white/90 backdrop-blur-md px-6 max-[900px]:px-3.5 flex items-center justify-between border-b border-slate-200/80 sticky top-0 z-[100] gap-3">
+        <header className="min-h-[62px] pt-[env(safe-area-inset-top,0px)] py-2 bg-white/95 backdrop-blur-md px-6 max-[900px]:px-3.5 flex items-center justify-between border-b border-slate-200/80 sticky top-0 z-[100] gap-3">
           <div className="flex items-center gap-2.5 flex-1 min-w-0">
             <button
+              type="button"
               onClick={alternarMenu}
-              className="px-2.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 active:bg-slate-300/70 text-slate-800 border border-slate-200/90 transition-colors shrink-0 cursor-pointer flex items-center gap-1.5 shadow-2xs"
+              className="px-3.5 py-2.5 min-h-[42px] rounded-xl bg-slate-100 hover:bg-slate-200 active:bg-slate-300/80 text-slate-800 border border-slate-200/90 transition-colors shrink-0 cursor-pointer flex items-center gap-1.5 shadow-2xs touch-manipulation select-none"
               aria-label="Alternar Menu Lateral"
               title={desktopCollapsed ? 'Mostrar menu lateral' : 'Recolher menu lateral'}
             >

@@ -9,6 +9,20 @@ import Capacitor
  */
 class SectrumBridgeViewController: CAPBridgeViewController, WKScriptMessageHandler {
 
+    override open func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = UIColor.white
+        webView?.scrollView.contentInsetAdjustmentBehavior = .never
+        webView?.scrollView.scrollsToTop = false
+        webView?.scrollView.bounces = false
+    }
+
+    override open func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        // Garante que todo o app fique abaixo da Dynamic Island / Relógio do iOS e acima da barra inferior
+        webView?.frame = view.safeAreaLayoutGuide.layoutFrame
+    }
+
     override open func webViewConfiguration(for instanceConfiguration: InstanceConfiguration) -> WKWebViewConfiguration {
         let config = super.webViewConfiguration(for: instanceConfiguration)
         config.allowsInlineMediaPlayback = true
