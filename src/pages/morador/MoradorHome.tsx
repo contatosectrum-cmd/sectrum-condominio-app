@@ -4006,6 +4006,29 @@ export default function MoradorHome() {
     });
   };
 
+  useEffect(() => {
+    const aoCallKitAtender = (ev: Event) => {
+      const c = (ev as CustomEvent<ChamadaInterfone | undefined>)?.detail;
+      if (c?.call_id) {
+        chamadasIgnoradasRef.current.add(c.call_id);
+        setChamadaTocando(null);
+      }
+    };
+    const aoCallKitRecusar = (ev: Event) => {
+      const cid = (ev as CustomEvent<{ call_id?: string } | undefined>)?.detail?.call_id;
+      if (cid) {
+        chamadasIgnoradasRef.current.add(cid);
+        setChamadaTocando(null);
+      }
+    };
+    window.addEventListener('sectrum-callkit-atender', aoCallKitAtender);
+    window.addEventListener('sectrum-callkit-recusar', aoCallKitRecusar);
+    return () => {
+      window.removeEventListener('sectrum-callkit-atender', aoCallKitAtender);
+      window.removeEventListener('sectrum-callkit-recusar', aoCallKitRecusar);
+    };
+  }, []);
+
   const recusarChamadaInterfone = async (c: ChamadaInterfone) => {
     chamadasIgnoradasRef.current.add(c.call_id);
     setChamadaTocando(null);
@@ -4450,6 +4473,24 @@ let pushUltimoTokenEnviado = '';
 export async function sincronizarWebPushInterfone(): Promise<void> {
   if (pushSyncEmAndamento) return;
   if (!obterTokenInterfone()) return;
+
+  // No App Nativo iOS, as chamadas em segundo plano usam Apple CallKit nativo (tela cheia de ligação estilo WhatsApp).
+  // Limpa eventual assinatura antiga de Safari Web Push no servidor para não enviar banners repetidos de texto.
+  if (
+    typeof document !== 'undefined' &&
+    (document.documentElement.classList.contains('sectrum-ios-native') ||
+      window.Capacitor?.getPlatform?.() === 'ios')
+  ) {
+    const chaveIos = `ios-callkit:${obterTokenInterfone()?.slice(-16) || ''}`;
+    if (pushUltimoTokenEnviado !== chaveIos) {
+      pushUltimoTokenEnviado = chaveIos;
+      api('salvar_fcm_token', {
+        corpo: { subscription: null, fcm_token: '' },
+      }).catch(() => undefined);
+    }
+    return;
+  }
+
   if (!('Notification' in window) || !('serviceWorker' in navigator)) return;
 
   pushSyncEmAndamento = true;
@@ -4875,11 +4916,7 @@ export function MonitorGlobalInterfone() {
     }
   };
 
-  if (paginaJaMonitora && !sessaoAptAtiva && !portaModal && !emergenciaAtiva) {
-    return null;
-  }
-
-  const atender = async (c: ChamadaInterfone) => {
+  const atender = useCallback(async (c: ChamadaInterfone) => {
     if (!obterToken()) {
       restaurarSessaoInterfone();
     }
@@ -4917,7 +4954,43 @@ export function MonitorGlobalInterfone() {
       valor: c.porta,
       nome: `${c.nome_portaria} (Interfone)`,
     });
-  };
+  }, []);
+
+  useEffect(() => {
+    const win = window as unknown as { __sectrumPendingCallKitAnswer?: ChamadaInterfone | null };
+    if (win.__sectrumPendingCallKitAnswer?.call_id) {
+      const pendente = win.__sectrumPendingCallKitAnswer;
+      win.__sectrumPendingCallKitAnswer = null;
+      atender(pendente);
+    }
+
+    const aoCallKitAtender = (ev: Event) => {
+      const c = (ev as CustomEvent<ChamadaInterfone | undefined>)?.detail;
+      win.__sectrumPendingCallKitAnswer = null;
+      if (c?.call_id) {
+        atender(c);
+      }
+    };
+
+    const aoCallKitRecusar = (ev: Event) => {
+      const cid = (ev as CustomEvent<{ call_id?: string } | undefined>)?.detail?.call_id;
+      if (cid) {
+        chamadasIgnoradasRef.current.add(cid);
+        setChamadaTocando(null);
+      }
+    };
+
+    window.addEventListener('sectrum-callkit-atender', aoCallKitAtender);
+    window.addEventListener('sectrum-callkit-recusar', aoCallKitRecusar);
+    return () => {
+      window.removeEventListener('sectrum-callkit-atender', aoCallKitAtender);
+      window.removeEventListener('sectrum-callkit-recusar', aoCallKitRecusar);
+    };
+  }, [atender]);
+
+  if (paginaJaMonitora && !sessaoAptAtiva && !portaModal && !emergenciaAtiva) {
+    return null;
+  }
 
   const recusar = async (c: ChamadaInterfone) => {
     chamadasIgnoradasRef.current.add(c.call_id);

@@ -4,13 +4,16 @@ import LocalAuthentication
 import Capacitor
 
 /**
- * ViewController principal do iOS com ponte nativa (Face ID / Touch ID + Persistência de Sessão de Interfone)
+ * ViewController principal do iOS com ponte nativa (Face ID / Touch ID + Persistência de Sessão de Interfone + CallKit)
  * compatível com a mesma interface `window.SectrumAndroid` usada no React (`src/lib/nativo.ts`).
  */
 class SectrumBridgeViewController: CAPBridgeViewController, WKScriptMessageHandler {
 
+    static weak var shared: SectrumBridgeViewController?
+
     override open func capacitorDidLoad() {
         super.capacitorDidLoad()
+        Self.shared = self
 
         guard let contentController = webView?.configuration.userContentController else { return }
         contentController.add(self, name: "SectrumIos")
@@ -43,7 +46,9 @@ class SectrumBridgeViewController: CAPBridgeViewController, WKScriptMessageHandl
             },
             pararSireneNativa: function() {},
             iniciarToqueInterfoneNativo: function() {},
-            pararToqueInterfoneNativo: function() {},
+            pararToqueInterfoneNativo: function() {
+              window.webkit.messageHandlers.SectrumIos.postMessage({ acao: 'encerrarCallKit' });
+            },
             temBiometriaNativa: function() { return \(temBio); },
             salvarCredencialBiometriaNativa: function(login, token, usuarioJson) {
               window.webkit.messageHandlers.SectrumIos.postMessage({
@@ -63,10 +68,34 @@ class SectrumBridgeViewController: CAPBridgeViewController, WKScriptMessageHandl
               });
             }
           };
+
+          function syncSessaoAutomatica() {
+            try {
+              var tok = localStorage.getItem('sectrum_token') || localStorage.getItem('sectrum_interfone_token');
+              var usu = localStorage.getItem('sectrum_usuario') || localStorage.getItem('sectrum_interfone_usuario') || '{}';
+              var srv = localStorage.getItem('sectrum_server_url') || 'https://cond.vps.seg.br';
+              if (tok && window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.SectrumIos) {
+                window.webkit.messageHandlers.SectrumIos.postMessage({
+                  acao: 'salvarSessao',
+                  token: tok,
+                  usuarioJson: usu,
+                  baseUrl: srv
+                });
+              }
+            } catch (e) {}
+          }
+          setTimeout(syncSessaoAutomatica, 600);
+          setInterval(syncSessaoAutomatica, 4500);
         })();
         """
         let userScript = WKUserScript(source: jsBridge, injectionTime: .atDocumentStart, forMainFrameOnly: false)
         contentController.addUserScript(userScript)
+    }
+
+    func executarJs(_ js: String) {
+        DispatchQueue.main.async { [weak self] in
+            self?.webView?.evaluateJavaScript(js, completionHandler: nil)
+        }
     }
 
     static func dispositivoTemFaceIdOuTouchId() -> Bool {
@@ -86,8 +115,13 @@ class SectrumBridgeViewController: CAPBridgeViewController, WKScriptMessageHandl
         case "salvarSessao":
             let token = (body["token"] as? String) ?? ""
             let baseUrl = (body["baseUrl"] as? String) ?? "https://cond.vps.seg.br"
-            defaults.set(token, forKey: "sectrum_interfone_token")
-            defaults.set(baseUrl, forKey: "sectrum_base_url")
+            if !token.isEmpty {
+                defaults.set(token, forKey: "sectrum_interfone_token")
+                defaults.set(baseUrl, forKey: "sectrum_base_url")
+            }
+
+        case "encerrarCallKit":
+            (UIApplication.shared.delegate as? AppDelegate)?.encerrarChamadaCallKitAtiva()
 
         case "salvarBiometria":
             let login = normalizarLogin((body["login"] as? String) ?? "")
