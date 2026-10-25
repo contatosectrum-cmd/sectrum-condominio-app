@@ -9,12 +9,10 @@ import Capacitor
  */
 class SectrumBridgeViewController: CAPBridgeViewController, WKScriptMessageHandler {
 
-    override open func webViewConfiguration(for instanceConfiguration: InstanceConfiguration) -> WKWebViewConfiguration {
-        let config = super.webViewConfiguration(for instanceConfiguration)
-        config.allowsInlineMediaPlayback = true
-        config.mediaTypesRequiringUserActionForPlayback = []
+    override open func capacitorDidLoad() {
+        super.capacitorDidLoad()
 
-        let contentController = config.userContentController
+        guard let contentController = webView?.configuration.userContentController else { return }
         contentController.add(self, name: "SectrumIos")
 
         let temBio = Self.dispositivoTemFaceIdOuTouchId() ? "true" : "false"
@@ -69,7 +67,6 @@ class SectrumBridgeViewController: CAPBridgeViewController, WKScriptMessageHandl
         """
         let userScript = WKUserScript(source: jsBridge, injectionTime: .atDocumentStart, forMainFrameOnly: false)
         contentController.addUserScript(userScript)
-        return config
     }
 
     static func dispositivoTemFaceIdOuTouchId() -> Bool {

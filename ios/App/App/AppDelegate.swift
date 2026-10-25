@@ -24,7 +24,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             let session = AVAudioSession.sharedInstance()
             // Categoria .playAndRecord com .defaultToSpeaker garante que o toque de interfone e a
             // sirene de emergência saiam no alto-falante principal mesmo com a chave Silencioso ativada no iPhone.
-            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth, .mixWithOthers])
+            try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
             try session.setActive(true)
         } catch {
             print("[SectrumiOS] Falha ao configurar AVAudioSession: \(error)")
