@@ -8,6 +8,7 @@ import { obterToken, obterTokenInterfone, restaurarSessaoInterfone } from '../..
 import {
   acionarSireneEmergenciaNativa,
   callKitTocandoChamada,
+  ehAppNativo,
   lerChamadaAtendidaNativa,
   obterUrlWsGo2rtc,
   pararSireneEmergenciaNativa,
@@ -1901,6 +1902,20 @@ export function acionarSireneEmergenciaBackground(furarDnd = true): void {
   }
 }
 
+let desbloqueioAudioEmAndamento = false;
+
+/**
+ * Libera a reprodução de áudio do navegador no primeiro toque do morador (exigência de autoplay dos navegadores).
+ *
+ * Correção do "apito de dois tons" ao abrir o app: antes, este desbloqueio dava play (no mudo) na própria
+ * campainha do interfone — que começa com dois bipes — e era disparado 3 vezes seguidas no primeiro toque
+ * (touchstart + pointerdown + click). Uma chamada tirava o mudo enquanto outra ainda tocava e os bipes vazavam.
+ * Agora:
+ *  - no app nativo (iOS/Android) NÃO toca nada: o Capacitor já libera o áudio sem gesto
+ *    (iOS `mediaTypesRequiringUserActionForPlayback = []`, Android `setMediaPlaybackRequiresUserGesture(false)`);
+ *  - no navegador, o desbloqueio roda uma única vez por vez e mantém os sons no MUDO
+ *    (cada ponto que toca de verdade já tira o mudo antes do play).
+ */
 export function desbloquearAudioInterfone(): void {
   try {
     const AudioCtx =
@@ -1911,52 +1926,33 @@ export function desbloquearAudioInterfone(): void {
         audioCtxGlobal.resume().catch(() => undefined);
       }
     }
-    if (!audioDesbloqueado) {
-      const el = obterAudioToqueInterfone();
-      el.muted = true;
-      const p = el.play();
-      if (p) {
-        p.then(() => {
-          el.pause();
-          el.currentTime = 0;
-          el.muted = false;
-          audioDesbloqueado = true;
-          if (furarNaoPerturbeCondominioAtivo) {
-            definirModoFurarNaoPerturbe(true);
-          }
-        }).catch(() => {
-          el.muted = false;
-        });
-      }
-      const elPulso = obterAudioPulsoChamando();
-      if (elPulso.paused) {
-        elPulso.muted = true;
-        const p2 = elPulso.play();
-        if (p2) {
-          p2.then(() => {
-            elPulso.pause();
-            elPulso.currentTime = 0;
-            elPulso.muted = false;
-          }).catch(() => {
-            elPulso.muted = false;
-          });
+    if (!audioDesbloqueado && ehAppNativo()) {
+      audioDesbloqueado = true;
+    }
+    if (!audioDesbloqueado && !desbloqueioAudioEmAndamento) {
+      desbloqueioAudioEmAndamento = true;
+      const desbloquearElemento = (el: HTMLAudioElement): Promise<void> => {
+        if (!el.paused) return Promise.resolve();
+        el.muted = true;
+        return Promise.resolve(el.play())
+          .then(() => {
+            el.pause();
+            el.currentTime = 0;
+          })
+          .catch(() => undefined);
+      };
+      Promise.all([
+        desbloquearElemento(obterAudioToqueInterfone()),
+        desbloquearElemento(obterAudioPulsoChamando()),
+        desbloquearElemento(obterAudioSireneEmergencia()),
+      ]).finally(() => {
+        desbloqueioAudioEmAndamento = false;
+        audioDesbloqueado = true;
+        if (furarNaoPerturbeCondominioAtivo) {
+          definirModoFurarNaoPerturbe(true);
         }
-      }
-      const elSirene = obterAudioSireneEmergencia();
-      if (elSirene.paused) {
-        elSirene.muted = true;
-        const p3 = elSirene.play();
-        if (p3) {
-          p3.then(() => {
-            elSirene.pause();
-            elSirene.currentTime = 0;
-            elSirene.muted = false;
-          }).catch(() => {
-            elSirene.muted = false;
-          });
-        }
-      }
-    } else if (furarNaoPerturbeCondominioAtivo) {
+      });
+    } else if (audioDesbloqueado && furarNaoPerturbeCondominioAtivo) {
       definirModoFurarNaoPerturbe(true);
     }
   } catch {
