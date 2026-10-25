@@ -1,0 +1,78 @@
+# Configuração Oficial de Compilação iOS na Nuvem Gratuita (Codemagic — Mac mini M2/M4)
+# Documentação: https://docs.codemagic.io/yaml-quick-start/building-a-capacitor-app/
+
+workflows:
+  ios-build-gratuito-ipa:
+    name: Sectrum iOS — Build Gratuito (.IPA Sem Assinatura / Teste)
+    max_build_duration: 30
+    instance_type: mac_mini_m2
+    environment:
+      node: 22
+      xcode: latest
+    scripts:
+      - name: Instalar dependências e compilar Frontend React
+        script: |
+          npm ci || npm install
+          npm run build
+          npx cap copy ios
+
+      - name: Compilar Projeto Nativo iOS no Xcode (Apple Silicon)
+        script: |
+          cd ios/App
+          xcodebuild build \
+            -project App.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Empacotar arquivo Sectrum-Condominio-iOS.ipa
+        script: |
+          cd ios/App
+          mkdir -p Payload
+          cp -r build/Build/Products/Release-iphoneos/App.app Payload/
+          zip -r Sectrum-Condominio-iOS.ipa Payload
+    artifacts:
+      - "ios/App/Sectrum-Condominio-iOS.ipa"
+
+  ios-app-store-testflight:
+    name: Sectrum iOS — TestFlight & App Store Oficial
+    max_build_duration: 30
+    instance_type: mac_mini_m2
+    integrations:
+      app_store_connect: Codemagic_AppStore_Key
+    environment:
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: br.seg.vps.cond.sectrum
+      vars:
+        XCODE_PROJECT: "ios/App/App.xcodeproj"
+        XCODE_SCHEME: "App"
+      node: 22
+      xcode: latest
+    scripts:
+      - name: Compilar Frontend React e sincronizar Capacitor iOS
+        script: |
+          npm ci || npm install
+          npm run build
+          npx cap copy ios
+
+      - name: Configurar Assinatura Automática Apple
+        script: |
+          xcode-project use-profiles
+
+      - name: Gerar IPA Assinado para App Store / TestFlight
+        script: |
+          xcode-project build-ipa \
+            --project "$XCODE_PROJECT" \
+            --scheme "$XCODE_SCHEME"
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true

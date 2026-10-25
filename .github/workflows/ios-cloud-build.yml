@@ -1,0 +1,63 @@
+name: Build Nativo iOS (macOS Cloud Gratuito)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  build-ios:
+    name: Compilar Sectrum iOS em Mac M-Series (GitHub Actions)
+    runs-on: macos-15
+    steps:
+      - name: Baixar código-fonte
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Instalar dependências e sincronizar Capacitor iOS
+        run: |
+          if [ -d "projeto-react/frontend" ]; then
+            cd projeto-react/frontend
+          fi
+          npm ci || npm install
+          npm run build
+          npx cap sync ios
+
+      - name: Compilar App Nativo no Xcode (Release iOS)
+        run: |
+          if [ -d "projeto-react/frontend/ios/App" ]; then
+            cd projeto-react/frontend/ios/App
+          else
+            cd ios/App
+          fi
+          xcodebuild build \
+            -project App.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Gerar pacote Sectrum-Condominio-iOS.ipa
+        run: |
+          if [ -d "projeto-react/frontend/ios/App" ]; then
+            cd projeto-react/frontend/ios/App
+          else
+            cd ios/App
+          fi
+          mkdir -p Payload
+          cp -r build/Build/Products/Release-iphoneos/App.app Payload/
+          zip -r Sectrum-Condominio-iOS.ipa Payload
+
+      - name: Disponibilizar Sectrum-Condominio-iOS.ipa para Download
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sectrum-Condominio-iOS-IPA
+          path: "**/Sectrum-Condominio-iOS.ipa"
+          retention-days: 30

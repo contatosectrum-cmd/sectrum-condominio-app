@@ -1,0 +1,18 @@
+{
+  "appId": "br.seg.vps.cond.sectrum",
+  "appName": "Sectrum Condomínio",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https",
+    "allowNavigation": [
+      "cond.vps.seg.br",
+      "*.vps.seg.br",
+      "*.ts.net"
+    ]
+  },
+  "android": {
+    "allowMixedContent": true,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": true
+  }
+}
