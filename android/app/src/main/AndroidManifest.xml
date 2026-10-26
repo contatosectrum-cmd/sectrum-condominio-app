@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Permissões de Rede, Câmera (Cadastro Facial), Microfone (Interfone VoIP),
-         Notificações, Tela Cheia sobre Bloqueio, Alarme e Serviço 24h em Segundo Plano -->
+    <!-- Permissões de Rede, Câmera (Cadastro Facial), Microfone (Interfone), Notificações e
+         Tela Cheia sobre o Bloqueio (chamadas de interfone e alarme de emergência).
+         Removidas para a Google Play: REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, FOREGROUND_SERVICE_SPECIAL_USE
+         e RECEIVE_BOOT_COMPLETED (o antigo serviço 24 h foi substituído por push FCM de alta prioridade). -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.CAMERA" />
@@ -13,11 +15,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
     <uses-permission android:name="android.permission.USE_FINGERPRINT" />
-    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.front" android:required="false" />
@@ -49,28 +48,25 @@
 
         </activity>
 
-        <!-- Serviço Nativo em Primeiro Plano para Interfone VoIP e Sirene de Emergência com o App Fechado -->
+        <!-- Push FCM de alta prioridade: chamadas de interfone, emergências e avisos com o app fechado -->
+        <service
+            android:name=".SectrumMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+        <!-- Serviço curto (até ~2,5 min) ligado pelo push apenas durante uma chamada ou emergência -->
         <service
             android:name=".SectrumGuardService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Monitoramento continuo de interfone condominial VoIP e alarmes de emergencia SOS dos moradores" />
-        </service>
+            android:foregroundServiceType="shortService" />
 
-        <!-- Reinício automático da proteção após ligar o celular -->
-        <receiver
-            android:name=".BootReceiver"
-            android:enabled="true"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED" />
-                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
-                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
-            </intent-filter>
-        </receiver>
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="sectrum_avisos_v1" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

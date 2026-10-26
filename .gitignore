@@ -11,3 +11,9 @@ android/local.properties
 *.log
 .env
 .env.*
+
+# Segredos do Android (chave de upload da Google Play e configuracao do Firebase)
+android/keystore.properties
+android/app/google-services.json
+*.jks
+*.keystore

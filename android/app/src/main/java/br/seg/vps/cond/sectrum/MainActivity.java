@@ -6,10 +6,8 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
-import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.PowerManager;
 import android.provider.Settings;
 import android.view.WindowManager;
 import android.webkit.JavascriptInterface;
@@ -36,7 +34,9 @@ import java.util.concurrent.Executor;
  * - Carrega todas as 39 telas do sistema via Capacitor WebView com aceleração de hardware;
  * - Acende sobre a tela de bloqueio (ShowWhenLocked + TurnScreenOn) para chamadas de Interfone e Emergências;
  * - Expõe a ponte Javascript `window.SectrumAndroid` para controle nativo de Sirene, Toque VoIP,
- *   Serviço em Segundo Plano 24h (SectrumGuardService) e Biometria Nativa (BiometricPrompt).
+ *   push FCM (SectrumMessagingService) e Biometria Nativa (BiometricPrompt).
+ * - Chamadas e emergências chegam por push FCM de alta prioridade; o antigo serviço 24 h foi removido
+ *   (exigência da Google Play e economia de bateria).
  */
 public class MainActivity extends BridgeActivity {
 
@@ -61,8 +61,38 @@ public class MainActivity extends BridgeActivity {
         } catch (Exception ignored) {}
 
         solicitarPermissoesEssenciais();
-        iniciarServicoSeTokenExistir();
+        desligarServicoLegado24h();
+        SectrumMessagingService.enviarTokenAoServidor(this, false);
         configurarBotaoVoltarAndroid();
+        abrirUrlDaNotificacao(getIntent());
+    }
+
+    /**
+     * Versões antigas deixavam um serviço em primeiro plano ligado 24 h. Ao atualizar, desliga-o:
+     * agora o serviço só liga durante uma chamada/emergência, acordado pelo push FCM.
+     */
+    private void desligarServicoLegado24h() {
+        try {
+            stopService(new Intent(this, SectrumGuardService.class));
+        } catch (Exception ignored) {}
+    }
+
+    /** Notificação tocada: abre a tela indicada pelo servidor (ex.: /morador?emergencia_id=10). */
+    private void abrirUrlDaNotificacao(Intent intent) {
+        if (intent == null) return;
+        final String url = intent.getStringExtra("sectrum_url");
+        if (url == null || !url.startsWith("/") || url.startsWith("//")) return;
+        intent.removeExtra("sectrum_url");
+        final String js = "try{var u=" + JSONObject.quote(url) + ";if(location.pathname+location.search!==u){location.href=u;}}catch(e){}";
+        for (long atraso : new long[]{400L, 1800L}) {
+            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                try {
+                    if (getBridge() != null && getBridge().getWebView() != null) {
+                        getBridge().getWebView().evaluateJavascript(js, null);
+                    }
+                } catch (Exception ignored) {}
+            }, atraso);
+        }
     }
 
     private void configurarBotaoVoltarAndroid() {
@@ -108,6 +138,7 @@ public class MainActivity extends BridgeActivity {
         super.onNewIntent(intent);
         setIntent(intent);
         configurarJanelaSobreTelaBloqueio();
+        abrirUrlDaNotificacao(intent);
     }
 
     @SuppressWarnings("deprecation")
@@ -152,27 +183,6 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
-    private void iniciarServicoSeTokenExistir() {
-        try {
-            SharedPreferences prefs = getSharedPreferences(SectrumGuardService.PREFS_NAME, MODE_PRIVATE);
-            String tok = prefs.getString(SectrumGuardService.KEY_TOKEN, "");
-            if (tok != null && !tok.isEmpty()) {
-                iniciarGuardService();
-            }
-        } catch (Exception ignored) {}
-    }
-
-    private void iniciarGuardService() {
-        try {
-            Intent svc = new Intent(this, SectrumGuardService.class);
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(svc);
-            } else {
-                startService(svc);
-            }
-        } catch (Exception ignored) {}
-    }
-
     private String normalizarChaveLogin(String login) {
         if (login == null) return "padrao";
         String limpo = login.trim().toLowerCase();
@@ -205,7 +215,7 @@ public class MainActivity extends BridgeActivity {
 
         @JavascriptInterface
         public String obterVersaoApp() {
-            return "1.0.0-android-native";
+            return "1.3.0-android-native";
         }
 
         @JavascriptInterface
@@ -222,7 +232,8 @@ public class MainActivity extends BridgeActivity {
                         .apply();
 
                 if (token != null && !token.isEmpty()) {
-                    iniciarGuardService();
+                    // Registra este aparelho para receber chamadas e alertas por push FCM
+                    SectrumMessagingService.enviarTokenAoServidor(MainActivity.this, false);
                 }
             } catch (Exception ignored) {}
         }
@@ -369,29 +380,15 @@ public class MainActivity extends BridgeActivity {
             });
         }
 
+        /** Mantido por compatibilidade com o React: o app não precisa mais ignorar a otimização de bateria. */
         @JavascriptInterface
         public boolean otimizacaoBateriaIgnorada() {
-            try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-                    return pm != null && pm.isIgnoringBatteryOptimizations(getPackageName());
-                }
-            } catch (Exception ignored) {}
             return true;
         }
 
+        /** Sem efeito: chamadas e alertas chegam por push FCM de alta prioridade. */
         @JavascriptInterface
         public void solicitarOtimizacaoBateria() {
-            try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-                    if (pm != null && !pm.isIgnoringBatteryOptimizations(getPackageName())) {
-                        Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
-                        intent.setData(Uri.parse("package:" + getPackageName()));
-                        startActivity(intent);
-                    }
-                }
-            } catch (Exception ignored) {}
         }
     }
 }
