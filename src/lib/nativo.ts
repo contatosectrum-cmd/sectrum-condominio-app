@@ -99,13 +99,22 @@ export function obterOrigemServidor(): string {
  */
 export function obterUrlWsGo2rtc(stream: string): string {
   const srcParam = encodeURIComponent(stream);
+  let tokenParam = '';
+  try {
+    const tk = localStorage.getItem('sectrum_token') || localStorage.getItem('sectrum_interfone_token') || '';
+    if (tk) {
+      tokenParam = `&token=${encodeURIComponent(tk)}`;
+    }
+  } catch {
+    // Ignora
+  }
   if (ehAppNativo()) {
     const origem = obterOrigemServidor();
     const wsOrigem = origem.replace(/^http:/i, 'ws:').replace(/^https:/i, 'wss:');
-    return `${wsOrigem}/go2rtc/api/ws?src=${srcParam}`;
+    return `${wsOrigem}/go2rtc/api/ws?src=${srcParam}${tokenParam}`;
   }
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${proto}//${window.location.host}/go2rtc/api/ws?src=${srcParam}`;
+  return `${proto}//${window.location.host}/go2rtc/api/ws?src=${srcParam}${tokenParam}`;
 }
 
 /**

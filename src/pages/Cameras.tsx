@@ -214,24 +214,52 @@ const StreamPlayer = ({ camera }: { camera: CameraItem }) => {
 
   // Liga o WebSocket do go2rtc no elemento <video-rtc> e monitora se o vídeo entrou em reprodução
   useEffect(() => {
-    const el = playerRef.current;
+    const el = playerRef.current as (HTMLElement & {
+      src?: string;
+      video?: HTMLVideoElement;
+      ondisconnect?: () => void;
+      onconnect?: () => void;
+    }) | null;
     if (!el || !stream) return;
     const wsUrl = obterUrlWsGo2rtc(stream);
     el.setAttribute('mode', 'webrtc,mse,hls,mjpeg');
-    el.setAttribute('media', 'video,audio');
+    el.setAttribute('media', 'video');
     el.src = wsUrl;
+
+    let ultimoTempo = -1;
+    let ultimoAvancoEm = Date.now();
 
     const timer = window.setInterval(() => {
       const v = el.querySelector('video');
       if (v) {
+        v.playsInline = true;
+        v.controls = false;
+        v.muted = true;
         v.style.width = '100%';
         v.style.height = '100%';
         v.style.objectFit = 'cover';
         if (v.readyState >= 2 && !v.paused && v.videoWidth > 0) {
-          setWebrtcPlaying(true);
+          if (v.buffered && v.buffered.length > 0) {
+            const fim = v.buffered.end(v.buffered.length - 1);
+            if (fim - v.currentTime > 1.8) {
+              v.currentTime = fim - 0.15;
+            }
+          }
+          if (Math.abs(v.currentTime - ultimoTempo) > 0.01) {
+            ultimoTempo = v.currentTime;
+            ultimoAvancoEm = Date.now();
+            setWebrtcPlaying(true);
+          } else if (!document.hidden && Date.now() - ultimoAvancoEm > 4500) {
+            ultimoAvancoEm = Date.now();
+            setWebrtcPlaying(false);
+            el.ondisconnect?.();
+            el.onconnect?.();
+          }
+        } else if (v.paused && v.readyState >= 2 && !document.hidden) {
+          v.play().catch(() => {});
         }
       }
-    }, 400);
+    }, 350);
     return () => window.clearInterval(timer);
   }, [stream]);
 

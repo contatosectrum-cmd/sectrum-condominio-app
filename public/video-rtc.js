@@ -18,8 +18,8 @@ class VideoRTC extends HTMLElement {
     constructor() {
         super();
 
-        this.DISCONNECT_TIMEOUT = 5000;
-        this.RECONNECT_TIMEOUT = 15000;
+        this.DISCONNECT_TIMEOUT = 2000;
+        this.RECONNECT_TIMEOUT = 2500;
 
         this.CODECS = [
             'avc1.640029',      // H.264 high 4.1 (Chromecast 1st and 2nd Gen)
@@ -56,7 +56,7 @@ class VideoRTC extends HTMLElement {
          * Default `0` - disable;
          * @type {number}
          */
-        this.visibilityThreshold = 0;
+        this.visibilityThreshold = 0.05;
 
         /**
          * [config] Run stream only when browser page on the screen. Stop when user change browser

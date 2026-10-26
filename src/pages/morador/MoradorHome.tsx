@@ -424,10 +424,15 @@ function ModalCameraPortaMorador({
       }
     };
 
+    let ultimoTempo = -1;
+    let ultimoAvancoEm = Date.now();
+
     const timerBusca = window.setInterval(() => {
       const v = container.querySelector('video');
       if (v && v !== videoEl) {
         videoEl = v;
+        ultimoTempo = v.currentTime;
+        ultimoAvancoEm = Date.now();
         v.muted = false;
         v.volume = 1.0;
         setAudioAtivo(!v.muted && v.volume > 0);
@@ -440,7 +445,29 @@ function ModalCameraPortaMorador({
           aoTocar();
         }
       }
-    }, 100);
+      if (v && !document.hidden && v.readyState >= 2 && v.videoWidth > 0) {
+        if (v.buffered && v.buffered.length > 0) {
+          const fim = v.buffered.end(v.buffered.length - 1);
+          if (fim - v.currentTime > 1.8) {
+            v.currentTime = fim - 0.15;
+          }
+        }
+        if (Math.abs(v.currentTime - ultimoTempo) > 0.01) {
+          ultimoTempo = v.currentTime;
+          ultimoAvancoEm = Date.now();
+        } else if (Date.now() - ultimoAvancoEm > 5000) {
+          ultimoAvancoEm = Date.now();
+          const rtcEl = container.querySelector('video-rtc') as (HTMLElement & {
+            ondisconnect?: () => void;
+            onconnect?: () => void;
+          }) | null;
+          if (rtcEl?.ondisconnect && rtcEl?.onconnect) {
+            rtcEl.ondisconnect();
+            rtcEl.onconnect();
+          }
+        }
+      }
+    }, 250);
 
     return () => {
       limpo = true;
@@ -775,7 +802,7 @@ function ModalCameraPortaMorador({
               >
                 <video-rtc
                   src={obterUrlWsGo2rtc(stream)}
-                  mode="mse,hls,mjpeg"
+                  mode="webrtc,mse,hls,mjpeg"
                   media="video,audio"
                   autoplay
                   style={{ width: '100%', height: '100%', objectFit: 'contain' }}
@@ -1151,14 +1178,19 @@ function CelulaCameraMosaico({
     const el = document.createElement('video-rtc') as HTMLElement & {
       src?: string;
       video?: HTMLVideoElement;
+      ondisconnect?: () => void;
+      onconnect?: () => void;
     };
-    el.setAttribute('mode', 'mse,webrtc,hls,mjpeg');
-    el.setAttribute('media', 'video,audio');
+    el.setAttribute('mode', 'webrtc,mse,hls,mjpeg');
+    el.setAttribute('media', 'video');
     el.style.width = '100%';
     el.style.height = '100%';
     el.style.display = 'block';
     container.appendChild(el);
     el.src = wsUrl;
+
+    let ultimoTempo = -1;
+    let ultimoAvancoEm = Date.now();
 
     const timer = window.setInterval(() => {
       const v = el.video || container.querySelector('video');
@@ -1170,8 +1202,23 @@ function CelulaCameraMosaico({
         v.style.objectFit = 'fill';
         v.muted = true;
         if (v.readyState >= 2 && !v.paused && v.videoWidth > 0) {
-          setVideoPronto(true);
-        } else if (v.paused && v.readyState >= 2) {
+          if (v.buffered && v.buffered.length > 0) {
+            const fim = v.buffered.end(v.buffered.length - 1);
+            if (fim - v.currentTime > 1.8) {
+              v.currentTime = fim - 0.15;
+            }
+          }
+          if (Math.abs(v.currentTime - ultimoTempo) > 0.01) {
+            ultimoTempo = v.currentTime;
+            ultimoAvancoEm = Date.now();
+            setVideoPronto(true);
+          } else if (!document.hidden && Date.now() - ultimoAvancoEm > 4500) {
+            ultimoAvancoEm = Date.now();
+            setVideoPronto(false);
+            el.ondisconnect?.();
+            el.onconnect?.();
+          }
+        } else if (v.paused && v.readyState >= 2 && !document.hidden) {
           v.play().catch(() => {
             v.muted = true;
             v.play().catch(() => undefined);

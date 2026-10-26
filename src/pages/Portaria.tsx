@@ -179,10 +179,15 @@ function ModalCameraPorta({
       }
     };
 
+    let ultimoTempo = -1;
+    let ultimoAvancoEm = Date.now();
+
     const timerBusca = window.setInterval(() => {
       const v = container.querySelector('video');
       if (v && v !== videoEl) {
         videoEl = v;
+        ultimoTempo = v.currentTime;
+        ultimoAvancoEm = Date.now();
         v.muted = false;
         v.volume = 1.0;
         setAudioAtivo(!v.muted && v.volume > 0);
@@ -195,7 +200,29 @@ function ModalCameraPorta({
           aoTocar();
         }
       }
-    }, 100);
+      if (v && !document.hidden && v.readyState >= 2 && v.videoWidth > 0) {
+        if (v.buffered && v.buffered.length > 0) {
+          const fim = v.buffered.end(v.buffered.length - 1);
+          if (fim - v.currentTime > 1.8) {
+            v.currentTime = fim - 0.15;
+          }
+        }
+        if (Math.abs(v.currentTime - ultimoTempo) > 0.01) {
+          ultimoTempo = v.currentTime;
+          ultimoAvancoEm = Date.now();
+        } else if (Date.now() - ultimoAvancoEm > 5000) {
+          ultimoAvancoEm = Date.now();
+          const rtcEl = container.querySelector('video-rtc') as (HTMLElement & {
+            ondisconnect?: () => void;
+            onconnect?: () => void;
+          }) | null;
+          if (rtcEl?.ondisconnect && rtcEl?.onconnect) {
+            rtcEl.ondisconnect();
+            rtcEl.onconnect();
+          }
+        }
+      }
+    }, 250);
 
     return () => {
       limpo = true;
@@ -467,7 +494,7 @@ function ModalCameraPorta({
               >
                 <video-rtc
                   src={obterUrlWsGo2rtc(stream)}
-                  mode="mse,hls,mjpeg"
+                  mode="webrtc,mse,hls,mjpeg"
                   media="video,audio"
                   autoplay
                   style={{ width: '100%', height: '100%', objectFit: 'contain' }}
