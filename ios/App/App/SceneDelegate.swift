@@ -134,9 +134,10 @@ class SectrumBridgeViewController: CAPBridgeViewController, WKScriptMessageHandl
             if !token.isEmpty {
                 defaults.set(token, forKey: "sectrum_interfone_token")
                 defaults.set(baseUrl, forKey: "sectrum_base_url")
-                (UIApplication.shared.delegate as? AppDelegate)?.garantirSentinelaBackgroundAtiva()
                 // Registra este iPhone para receber VoIP Push (tocar com o app fechado / tela bloqueada)
                 (UIApplication.shared.delegate as? AppDelegate)?.enviarVoipTokenAoServidor()
+                // ...e notificações comuns (emergência, portaria, avisos) pelo APNs
+                (UIApplication.shared.delegate as? AppDelegate)?.enviarApnsTokenAoServidor()
             }
 
         case "limparSessao":

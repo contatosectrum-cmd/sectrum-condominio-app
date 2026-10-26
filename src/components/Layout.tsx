@@ -10,6 +10,7 @@ import { atualizarUsuario, type Usuario } from '../lib/sessao';
 import { api } from '../lib/api';
 import LimiteErro from './LimiteErro';
 import MonitorTransbordoPortaria from './MonitorTransbordoPortaria';
+import ModalExcluirConta from './ModalExcluirConta';
 
 // Espelho fiel de src/views/layout.php do sistema em producao + suporte a Modo Operacional (recolher menu no desktop e Tela Cheia):
 // - Logo da Sectrum (escudo azul + "Sectrum / Gestão Condominial")
@@ -110,6 +111,7 @@ export default function Layout() {
   });
   const [pwaPrompt, setPwaPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [menuUsuarioAberto, setMenuUsuarioAberto] = useState(false);
+  const [excluirContaAberto, setExcluirContaAberto] = useState(false);
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -545,6 +547,50 @@ export default function Layout() {
                         <span>Suporte WhatsApp</span>
                       </a>
 
+                      <a
+                        href="/politica-de-privacidade.html"
+                        onClick={() => setMenuUsuarioAberto(false)}
+                        className="flex items-center gap-2.5 px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          className="w-4 h-4 shrink-0"
+                        >
+                          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                        </svg>
+                        <span>Política de Privacidade</span>
+                      </a>
+
+                      {usuario.perfil !== 'superadmin' && (
+                        <button
+                          onClick={() => {
+                            setMenuUsuarioAberto(false);
+                            setExcluirContaAberto(true);
+                          }}
+                          className="w-full flex items-center gap-2.5 px-4 py-2 text-xs font-semibold text-rose-500 hover:bg-rose-50 transition-colors text-left cursor-pointer"
+                        >
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            className="w-4 h-4 shrink-0"
+                          >
+                            <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" />
+                          </svg>
+                          <span>Excluir minha conta</span>
+                        </button>
+                      )}
+
                       <button
                         onClick={() => {
                           setMenuUsuarioAberto(false);
@@ -562,6 +608,10 @@ export default function Layout() {
             </div>
           </div>
         </header>
+
+        {excluirContaAberto && (
+          <ModalExcluirConta perfil={usuario.perfil} onFechar={() => setExcluirContaAberto(false)} />
+        )}
 
         {/* Monitor global de Transbordo Automático de Interfone + Registro de Push do Watchdog para Portaria/Síndico/Admin */}
         {usuario.perfil !== 'morador' && (

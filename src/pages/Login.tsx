@@ -504,6 +504,10 @@ export default function Login() {
           </a>
           <br />
           &copy; {anoAtual} Sectrum Tecnologia · Todos os direitos reservados
+          <br />
+          <a href="/politica-de-privacidade.html" className="text-[#64748b] underline">
+            Política de Privacidade
+          </a>
         </div>
       </div>
 

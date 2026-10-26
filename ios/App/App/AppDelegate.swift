@@ -12,7 +12,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     var window: UIWindow?
     private var bgTask: UIBackgroundTaskIdentifier = .invalid
     private var monitorTimer: Timer?
-    private var sentinelaPlayer: AVAudioPlayer?
 
     // Estado CallKit (Chamada Nativa estilo WhatsApp)
     private var cxProvider: CXProvider?
@@ -24,7 +23,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     private var ultimoStatusCallKit: String = "idle"
 
     private var ultimoCallIdNotificado: String = ""
-    private var ultimaEmergenciaIdNotificada: Int = 0
 
     // VoIP Push (PushKit): acorda o app mesmo FECHADO e com a tela BLOQUEADA para exibir a chamada no CallKit
     private var voipRegistry: PKPushRegistry?
@@ -46,7 +44,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         // que a chamada seja reportada imediatamente, senão encerra o app e para de entregar pushes.
         configurarCallKitNativo()
         registrarVoipPush()
-        garantirSentinelaBackgroundAtiva()
         configurarNotificacoesNativas(application)
         registrarObservadoresCicloDeVida()
         iniciarMonitoramentoInterfoneEmergencia()
@@ -65,40 +62,21 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         nc.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
             self?.aoEntrarEmBackground()
         }
-        nc.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] _ in
-            if UIApplication.shared.applicationState != .active {
-                self?.garantirSentinelaBackgroundAtiva()
-            }
-        }
     }
 
-    func garantirSentinelaBackgroundAtiva() {
-        // Durante a conversa nativa a sessão de áudio pertence ao CallKit (.playAndRecord/.voiceChat);
-        // trocar para .playback aqui desligaria o microfone no meio da ligação.
-        // Com uma chamada tocando/ativa no CallKit a sessão também precisa ficar LIVRE: se o app mantiver
-        // a sessão ativa, o iOS não toca a campainha/vibração e não consegue liberar o microfone ao atender.
+    /**
+     * Libera a sessão de áudio do app quando não há chamada nem conversa em andamento.
+     *
+     * Antes o app mantinha um áudio inaudível tocando sem parar para não ser suspenso em segundo plano.
+     * Isso é proibido pela Apple (diretriz 2.5.4) e foi removido: o app agora é acordado pelo próprio iOS
+     * via VoIP Push (chamadas de interfone) e notificações APNs (emergência, portaria, avisos).
+     */
+    func liberarSessaoAudioOcioso() {
         if audioNativo != nil || audioNativoApp != nil || callUuidAtivo != nil { return }
-        do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
-            try session.setActive(true)
-            if sentinelaPlayer == nil {
-                let wavData = Self.gerarWavSilenciosoData()
-                sentinelaPlayer = try AVAudioPlayer(data: wavData)
-                sentinelaPlayer?.numberOfLoops = -1
-                sentinelaPlayer?.volume = 0.02
-                sentinelaPlayer?.prepareToPlay()
-            }
-            if sentinelaPlayer?.isPlaying != true {
-                sentinelaPlayer?.play()
-            }
-        } catch {
-            print("[SectrumiOS] Erro ao ativar sentinela background: \(error)")
-        }
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
     func aoEntrarEmBackground() {
-        garantirSentinelaBackgroundAtiva()
         let app = UIApplication.shared
         if bgTask == .invalid {
             bgTask = app.beginBackgroundTask(withName: "SectrumVoipGuard") { [weak self] in
@@ -115,41 +93,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             UIApplication.shared.endBackgroundTask(bgTask)
             bgTask = .invalid
         }
-        garantirSentinelaBackgroundAtiva()
         garantirPermissaoMicrofone()
+        zerarBadge()
+        enviarApnsTokenAoServidor()
         SectrumDiag.enviarPendentes()
         // Ligação atendida pela tela do iOS em andamento: garante que o app mostre a tela de conversa
         if audioNativo != nil {
             notificarReactChamadaNativaAtendida()
         }
-    }
-
-    /**
-     * Gera um WAV PCM 8kHz mono de 1 segundo com onda não-zero de ±4 LSB (-78 dB, 100% inaudível)
-     * para evitar que o detector de silêncio digital do coreaudiod suspenda o processo em tela bloqueada.
-     */
-    private static func gerarWavSilenciosoData() -> Data {
-        let header: [UInt8] = [
-            0x52, 0x49, 0x46, 0x46, // "RIFF"
-            0xA4, 0x3E, 0x00, 0x00, // 16036
-            0x57, 0x41, 0x56, 0x45, // "WAVE"
-            0x66, 0x6D, 0x74, 0x20, // "fmt "
-            0x10, 0x00, 0x00, 0x00, // 16
-            0x01, 0x00,             // PCM = 1
-            0x01, 0x00,             // Channels = 1
-            0x40, 0x1F, 0x00, 0x00, // 8000 Hz
-            0x80, 0x3E, 0x00, 0x00, // 16000 B/s
-            0x02, 0x00,             // BlockAlign = 2
-            0x10, 0x00,             // 16-bit
-            0x64, 0x61, 0x74, 0x61, // "data"
-            0x80, 0x3E, 0x00, 0x00  // 16000 bytes
-        ]
-        var data = Data(header)
-        let padrao: [UInt8] = [0x04, 0x00, 0xFC, 0xFF]
-        for _ in 0..<4000 {
-            data.append(contentsOf: padrao)
-        }
-        return data
     }
 
     private func configurarCallKitNativo() {
@@ -187,10 +138,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     }
 
     private func verificarServidorEmBackground() {
-        if UIApplication.shared.applicationState != .active {
-            garantirSentinelaBackgroundAtiva()
-        }
-
         let defaults = UserDefaults.standard
         guard let token = defaults.string(forKey: "sectrum_interfone_token"), !token.isEmpty else { return }
         let baseUrl = defaults.string(forKey: "sectrum_base_url") ?? "https://cond.vps.seg.br"
@@ -243,36 +190,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             }.resume()
         }
 
-        // 2. Verifica Emergência Ativa
-        if let urlEm = URL(string: "\(baseUrl)/api.php?route=emergencia_status_ativo") {
-            var req = URLRequest(url: urlEm, timeoutInterval: 4.0)
-            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-            req.setValue("application/json", forHTTPHeaderField: "Accept")
-            URLSession.shared.dataTask(with: req) { [weak self] data, _, _ in
-                guard let self = self, let data = data,
-                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      let em = json["emergencia"] as? [String: Any],
-                      let status = em["status"] as? String, status.lowercased() == "ativo" else {
-                    self?.ultimaEmergenciaIdNotificada = 0
-                    return
-                }
-                let idEm = (em["id"] as? Int) ?? 0
-                let tipo = (em["tipo"] as? String) ?? "seguranca"
-                let unidadeLabel = (em["unidade_label"] as? String) ?? "Condomínio"
-                let autorNome = (em["autor_nome"] as? String) ?? "Morador"
-                if idEm > 0 && idEm != self.ultimaEmergenciaIdNotificada {
-                    self.ultimaEmergenciaIdNotificada = idEm
-                    let titulo = tipo.lowercased() == "medica"
-                        ? "🚑 EMERGÊNCIA MÉDICA — \(unidadeLabel)"
-                        : "🚨 EMERGÊNCIA DE SEGURANÇA — \(unidadeLabel)"
-                    self.dispararNotificacaoLocalCritica(
-                        id: "sectrum-em-\(idEm)",
-                        titulo: titulo,
-                        corpo: "🆘 \(autorNome) pediu socorro imediato em \(unidadeLabel)! Toque para abrir!"
-                    )
-                }
-            }.resume()
-        }
+        // 2. Emergências: com o app aberto o React mostra o alarme; em segundo plano chega a notificação
+        //    APNs enviada pelo servidor (o monitor nativo não gera mais notificação local duplicada).
     }
 
     /**
@@ -480,7 +399,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in
             self?.cxProvider?.reportCall(with: uuid, endedAt: Date(), reason: .answeredElsewhere)
             self?.callUuidAtivo = nil
-            self?.garantirSentinelaBackgroundAtiva()
+            self?.liberarSessaoAudioOcioso()
         }
     }
 
@@ -506,9 +425,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         chamadaAtivaDict = nil
         chamadaAtendida = false
         action.fulfill()
-        // Aguarda o CallKit liberar a sessão de áudio antes de religar a sentinela
+        // Aguarda o CallKit encerrar a ligação e libera a sessão de áudio
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
-            self?.garantirSentinelaBackgroundAtiva()
+            self?.liberarSessaoAudioOcioso()
         }
     }
 
@@ -524,7 +443,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     }
 
     func provider(_ provider: CXProvider, didDeactivate audioSession: AVAudioSession) {
-        // Sessão liberada pelo CallKit; a sentinela é religada ao final da chamada
+        // Sessão liberada pelo CallKit ao final da chamada
         SectrumDiag.log("callkit: sessão de áudio desativada")
     }
 
@@ -552,7 +471,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             return
         }
         SectrumDiag.log("app-audio: iniciar \(callId) viaVoz=\(viaVoz)")
-        sentinelaPlayer?.pause()
         do {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetooth])
@@ -581,8 +499,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         audioNativoApp = nil
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
             guard let self = self, self.audioNativo == nil, self.audioNativoApp == nil else { return }
-            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-            self.garantirSentinelaBackgroundAtiva()
+            self.liberarSessaoAudioOcioso()
         }
     }
 
@@ -669,10 +586,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         return InterfoneAudioNativo(callId: callId, baseUrl: baseUrl, token: token)
     }
 
-    /// Para a sentinela e desativa a sessão de áudio do app, deixando o iOS livre para tocar a campainha
+    /// Desativa a sessão de áudio do app, deixando o iOS livre para tocar a campainha
     /// do CallKit e ativar a sessão da ligação com prioridade (necessário para o microfone funcionar ao atender).
     private func liberarSessaoParaCallKit() {
-        sentinelaPlayer?.stop()
         do {
             try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         } catch {
@@ -737,7 +653,80 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         chamadaAtendida = false
         ultimoStatusCallKit = "ended"
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
-            self?.garantirSentinelaBackgroundAtiva()
+            self?.liberarSessaoAudioOcioso()
+        }
+    }
+
+    // MARK: - Notificações comuns (APNs): emergência, portaria, avisos, encomendas
+
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        let hex = deviceToken.map { String(format: "%02x", $0) }.joined()
+        UserDefaults.standard.set(hex, forKey: "sectrum_apns_token")
+        SectrumDiag.log("apns: token de notificações recebido")
+        enviarApnsTokenAoServidor(forcar: true)
+    }
+
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        SectrumDiag.log("apns: falha ao registrar notificações (\(error.localizedDescription))")
+    }
+
+    /// Registra o iPhone no servidor para receber notificações (usa a mesma lista de dispositivos do Web Push/FCM,
+    /// no formato "apns:<ambiente>:<token>", então todos os avisos que já existem passam a chegar no iPhone).
+    func enviarApnsTokenAoServidor(forcar: Bool = false) {
+        let defaults = UserDefaults.standard
+        guard let apns = defaults.string(forKey: "sectrum_apns_token"), !apns.isEmpty,
+              let token = defaults.string(forKey: "sectrum_interfone_token"), !token.isEmpty else { return }
+        #if DEBUG
+        let ambiente = "sandbox"
+        #else
+        let ambiente = "production"
+        #endif
+        let valor = "apns:\(ambiente):\(apns)"
+        let chave = "\(valor)|\(String(token.suffix(24)))"
+        if !forcar && defaults.string(forKey: "sectrum_apns_token_enviado") == chave { return }
+
+        let baseUrl = defaults.string(forKey: "sectrum_base_url") ?? "https://cond.vps.seg.br"
+        guard let url = URL(string: "\(baseUrl)/api.php?route=salvar_fcm_token") else { return }
+        var req = URLRequest(url: url, timeoutInterval: 10.0)
+        req.httpMethod = "POST"
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["fcm_token": valor])
+        URLSession.shared.dataTask(with: req) { _, resp, _ in
+            if (resp as? HTTPURLResponse)?.statusCode == 200 {
+                DispatchQueue.main.async {
+                    UserDefaults.standard.set(chave, forKey: "sectrum_apns_token_enviado")
+                }
+            }
+        }.resume()
+    }
+
+    /// Toque na notificação: abre a tela correspondente do app (ex.: emergência, interfone da portaria, avisos).
+    func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                didReceive response: UNNotificationResponse,
+                                withCompletionHandler completionHandler: @escaping () -> Void) {
+        let info = response.notification.request.content.userInfo
+        if let caminho = info["url"] as? String, caminho.hasPrefix("/"), !caminho.hasPrefix("//"),
+           let dados = try? JSONSerialization.data(withJSONObject: [caminho]),
+           let json = String(data: dados, encoding: .utf8) {
+            let js = "try { var u = \(json)[0]; if (window.location.pathname + window.location.search !== u) { window.location.href = u; } } catch (e) {}"
+            // O WebView pode ainda estar carregando se o app foi aberto pelo toque na notificação
+            for atraso in [0.3, 1.5] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + atraso) {
+                    SectrumBridgeViewController.shared?.executarJs(js)
+                }
+            }
+        }
+        completionHandler()
+    }
+
+    /// Zera o número no ícone do app ao abri-lo.
+    private func zerarBadge() {
+        if #available(iOS 16.0, *) {
+            UNUserNotificationCenter.current().setBadgeCount(0) { _ in }
+        } else {
+            UIApplication.shared.applicationIconBadgeNumber = 0
         }
     }
 
@@ -801,9 +790,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             }
         }
 
-        // Mantém o processo vivo e confere no servidor se a chamada ainda está tocando
+        // Ganha alguns segundos em segundo plano e confere no servidor se a chamada ainda está tocando
         // (se quem ligou desistir, o monitoramento encerra a tela de chamada sozinho)
-        garantirSentinelaBackgroundAtiva()
         aoEntrarEmBackground()
         verificarServidorEmBackground()
     }
