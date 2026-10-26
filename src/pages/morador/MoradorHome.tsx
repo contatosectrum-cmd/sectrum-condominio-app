@@ -1121,7 +1121,7 @@ function CelulaCameraMosaico({
     let streamOk = false;
     let finalizados = 0;
 
-    const totalEsperado = camera.modo_conexao === 'isup' ? 1 : 2;
+    const totalEsperado = 2;
     const finalizar = (errStr?: string) => {
       finalizados++;
       if (!ativo) return;
@@ -1146,19 +1146,17 @@ function CelulaCameraMosaico({
       })
       .catch((e) => finalizar(msgErro(e)));
 
-    if (camera.modo_conexao !== 'isup') {
-      api<{ stream: string }>('morador_cftv_stream', {
-        query: { camera_id: camera.id },
+    api<{ stream: string }>('morador_cftv_stream', {
+      query: { camera_id: camera.id },
+    })
+      .then((r) => {
+        if (!ativo) return;
+        streamOk = true;
+        setStream(r.stream);
+        setErro('');
+        finalizar();
       })
-        .then((r) => {
-          if (!ativo) return;
-          streamOk = true;
-          setStream(r.stream);
-          setErro('');
-          finalizar();
-        })
-        .catch((e) => finalizar(msgErro(e)));
-    }
+      .catch((e) => finalizar(msgErro(e)));
 
     return () => {
       ativo = false;

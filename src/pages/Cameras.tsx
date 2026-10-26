@@ -198,7 +198,7 @@ const StreamPlayer = ({ camera }: { camera: CameraItem }) => {
     setSnapshot(null);
     setWebrtcPlaying(false);
 
-    if (camera.status === 'online' && camera.modo_conexao !== 'isup') {
+    if (camera.status === 'online') {
       api<{ stream: string }>('camera_stream', { query: { id: camera.id } })
         .then((r) => {
           if (ativo) setStream(r.stream);
