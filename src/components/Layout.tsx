@@ -225,8 +225,22 @@ export default function Layout() {
     (/iPhone|iPad|iPod/i.test(navigator.userAgent) ||
       (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) ||
       (typeof document !== 'undefined' && document.documentElement.classList.contains('sectrum-ios-native')));
-  const safeTopCss = ehIos ? 'max(env(safe-area-inset-top, 0px), 56px)' : 'env(safe-area-inset-top, 0px)';
-  const safeBottomCss = ehIos ? 'max(env(safe-area-inset-bottom, 0px), 24px)' : 'env(safe-area-inset-bottom, 0px)';
+  // App Android nativo (Capacitor 8 / Android 15+): a tela é desenhada por baixo da barra de status e da barra de
+  // gestos. O Capacitor informa as alturas em env(safe-area-inset-*) e em --safe-area-inset-* (WebView antigos);
+  // sem esse espaço o menu fica sob a barra de status e o toque vai para o sistema (abre a cortina de notificações).
+  const ehAndroidNativo =
+    !ehIos && typeof window !== 'undefined' && Boolean(window.SectrumAndroid?.ehAppNativo?.());
+  const safeTopCss = ehIos
+    ? 'max(env(safe-area-inset-top, 0px), 56px)'
+    : ehAndroidNativo
+      ? 'max(env(safe-area-inset-top, 0px), var(--safe-area-inset-top, 0px))'
+      : 'env(safe-area-inset-top, 0px)';
+  const safeBottomCss = ehIos
+    ? 'max(env(safe-area-inset-bottom, 0px), 24px)'
+    : ehAndroidNativo
+      ? 'max(env(safe-area-inset-bottom, 0px), var(--safe-area-inset-bottom, 0px))'
+      : 'env(safe-area-inset-bottom, 0px)';
+  const appNativoComBarras = ehIos || ehAndroidNativo;
 
   const alternarTelaCheia = () => {
     if (!document.fullscreenElement) {
@@ -400,6 +414,7 @@ export default function Layout() {
 
       {/* MAIN (.main) */}
       <div
+        style={{ paddingBottom: ehAndroidNativo ? safeBottomCss : undefined }}
         className={`flex-1 flex flex-col min-h-screen min-w-0 transition-[margin] duration-250 ease-[cubic-bezier(0.4,0,0.2,1)] ${
           desktopCollapsed ? 'min-[901px]:ml-0' : 'min-[901px]:ml-[284px]'
         }`}
@@ -407,8 +422,8 @@ export default function Layout() {
         {/* Topbar (.topbar) */}
         <header
           style={{
-            paddingTop: ehIos ? `calc(${safeTopCss} + 8px)` : undefined,
-            paddingBottom: ehIos ? '10px' : undefined,
+            paddingTop: appNativoComBarras ? `calc(${safeTopCss} + 8px)` : undefined,
+            paddingBottom: appNativoComBarras ? '10px' : undefined,
           }}
           className="min-h-[62px] bg-white/95 backdrop-blur-md px-6 max-[900px]:px-3.5 flex items-center justify-between border-b border-slate-200/80 sticky top-0 z-[100] gap-3"
         >

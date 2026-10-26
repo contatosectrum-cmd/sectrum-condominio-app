@@ -1531,6 +1531,15 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
 
 let wavToqueCache: string | null = null;
 let audioToqueGlobal: HTMLAudioElement | null = null;
+/**
+ * Espaço das barras do sistema (barra de status/notch em cima e barra de gestos embaixo) para telas em tela cheia.
+ * iPhone: env(safe-area-inset-*). Android (Capacitor 8 / Android 15+): env() ou a variável --safe-area-inset-*
+ * injetada pelo Capacitor. No navegador comum o resultado é 0.
+ */
+const AREA_SEGURA_TOPO = 'max(env(safe-area-inset-top, 0px), var(--safe-area-inset-top, 0px))';
+const AREA_SEGURA_BASE = 'max(env(safe-area-inset-bottom, 0px), var(--safe-area-inset-bottom, 0px))';
+const ESTILO_AREA_SEGURA = { paddingTop: AREA_SEGURA_TOPO, paddingBottom: AREA_SEGURA_BASE } as const;
+
 let audioCtxGlobal: AudioContext | null = null;
 let audioDesbloqueado = false;
 
@@ -2149,7 +2158,10 @@ export function ModalAlertaEmergenciaAtiva({
   const confirmacoesLista = Array.isArray(emergencia.confirmacoes) ? emergencia.confirmacoes : [];
 
   return (
-    <div className="fixed inset-0 z-[10000] bg-slate-950/95 backdrop-blur-md text-white flex flex-col justify-between overflow-y-auto p-3 sm:p-5 select-none">
+    <div
+      style={{ paddingTop: `calc(${AREA_SEGURA_TOPO} + 12px)`, paddingBottom: `calc(${AREA_SEGURA_BASE} + 12px)` }}
+      className="fixed inset-0 z-[10000] bg-slate-950/95 backdrop-blur-md text-white flex flex-col justify-between overflow-y-auto p-3 sm:p-5 select-none"
+    >
       {/* Borda de Giroflex Piscando */}
       <div
         className={`pointer-events-none fixed inset-0 border-[6px] sm:border-[10px] animate-pulse ${
@@ -2727,7 +2739,7 @@ export function ModalChamadaInterfoneRecebida({
     String(chamada.device_id || '').toUpperCase().startsWith('APT:');
 
   return (
-    <div className="fixed inset-0 z-[9999] bg-slate-950 text-white flex flex-col justify-between overflow-hidden select-none">
+    <div style={ESTILO_AREA_SEGURA} className="fixed inset-0 z-[9999] bg-slate-950 text-white flex flex-col justify-between overflow-hidden select-none">
       {/* Fundo em tela cheia com a imagem da câmera borrada para visual de chamada nativa */}
       {snapshot && !ehChamadaApartamento && (
         <img
@@ -3146,7 +3158,7 @@ export function ModalConversaApartamento({
   const energiaTotalVisual = Math.max(nivelVoz, nivelVozRemota) / 100;
 
   return (
-    <div className="fixed inset-0 z-[9999] bg-slate-950 text-white flex flex-col justify-between overflow-hidden select-none">
+    <div style={ESTILO_AREA_SEGURA} className="fixed inset-0 z-[9999] bg-slate-950 text-white flex flex-col justify-between overflow-hidden select-none">
       <div className="absolute inset-0 bg-gradient-to-b from-slate-900 via-slate-950 to-black pointer-events-none" />
 
       {/* Topo da Ligação */}
