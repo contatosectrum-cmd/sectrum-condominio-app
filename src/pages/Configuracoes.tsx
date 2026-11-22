@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Settings, Save, Building, ShieldCheck, Clock, Users, X, Landmark, KeyRound, Siren, BellRing } from 'lucide-react';
+import { Settings, Save, Building, ShieldCheck, Clock, Users, X, Landmark, KeyRound, Siren, BellRing, MessageSquare, Bot, Car, DoorOpen, Video, Zap } from 'lucide-react';
 import { api, ErroApi } from '../lib/api';
 import { mascaraCpf } from '../lib/cpf';
 import ValidadorCpf from '../components/ValidadorCpf';
@@ -12,8 +12,15 @@ interface ConfigData {
   limite_veiculos: number;
   foto_obrigatoria: boolean;
   validade_qrcode_horas: number;
+  abrir_veiculo_sem_video: boolean;
+  abrir_pedestre_sem_video: boolean;
   modulo_emergencia: boolean;
   emergencia_furar_nao_perturbe: boolean;
+  emergencia_somente_administracao: boolean;
+  whatsapp_auto_ativo: boolean;
+  whatsapp_ia_ativo: boolean;
+  plano_whatsapp_ia: string;
+  valor_mensal_plano_zap_brl: number;
 }
 
 interface CpfReceitaCfg {
@@ -54,8 +61,15 @@ export default function Configuracoes() {
     limite_veiculos: 2,
     foto_obrigatoria: true,
     validade_qrcode_horas: 24,
+    abrir_veiculo_sem_video: false,
+    abrir_pedestre_sem_video: false,
     modulo_emergencia: true,
     emergencia_furar_nao_perturbe: true,
+    emergencia_somente_administracao: false,
+    whatsapp_auto_ativo: true,
+    whatsapp_ia_ativo: true,
+    plano_whatsapp_ia: 'sob_demanda',
+    valor_mensal_plano_zap_brl: 0,
   });
 
   const [cpfCfg, setCpfCfg] = useState<CpfReceitaCfg>({
@@ -88,8 +102,15 @@ export default function Configuracoes() {
           limite_veiculos: r.configuracoes.limite_veiculos ?? 2,
           foto_obrigatoria: r.configuracoes.foto_obrigatoria ?? true,
           validade_qrcode_horas: r.configuracoes.validade_qrcode_horas || 24,
+          abrir_veiculo_sem_video: Boolean(r.configuracoes.abrir_veiculo_sem_video),
+          abrir_pedestre_sem_video: Boolean(r.configuracoes.abrir_pedestre_sem_video),
           modulo_emergencia: r.configuracoes.modulo_emergencia ?? true,
           emergencia_furar_nao_perturbe: r.configuracoes.emergencia_furar_nao_perturbe ?? true,
+          emergencia_somente_administracao: Boolean(r.configuracoes.emergencia_somente_administracao),
+          whatsapp_auto_ativo: r.configuracoes.whatsapp_auto_ativo ?? true,
+          whatsapp_ia_ativo: r.configuracoes.whatsapp_ia_ativo ?? true,
+          plano_whatsapp_ia: r.configuracoes.plano_whatsapp_ia || 'sob_demanda',
+          valor_mensal_plano_zap_brl: Number(r.configuracoes.valor_mensal_plano_zap_brl ?? 0),
         });
       }
       if (r.cpf_receita) {
@@ -318,6 +339,140 @@ export default function Configuracoes() {
               </label>
             </div>
 
+            {/* Abertura Direta (Sem Vídeo vs. Com Vídeo) — Portão de Veículos */}
+            <div className="md:col-span-2 p-5 bg-blue-50/70 rounded-xl border border-blue-200 space-y-3">
+              <div className="flex items-start justify-between gap-4">
+                <div className="pr-2">
+                  <label className="text-base font-bold text-slate-800 mb-1 flex items-center gap-2 flex-wrap">
+                    <Car className="text-blue-600 shrink-0" size={20} />
+                    <span>Portão de Veículos — Abrir Portão Sem Vídeo (Direto em 1 Toque)</span>
+                    <span
+                      className={`px-2.5 py-0.5 rounded-full text-xs font-extrabold inline-flex items-center gap-1 ${
+                        formData.abrir_veiculo_sem_video
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-slate-200 text-slate-700'
+                      }`}
+                    >
+                      {formData.abrir_veiculo_sem_video ? (
+                        <>
+                          <Zap size={12} /> Sem Vídeo (Direto)
+                        </>
+                      ) : (
+                        <>
+                          <Video size={12} /> Com Vídeo e Áudio
+                        </>
+                      )}
+                    </span>
+                  </label>
+                  <p className="text-sm text-slate-600">
+                    Recomendado para <b>Portaria Remota</b> e garagens: como o motorista fica distante do leitor facial e
+                    precisa de resposta rápida, marcar esta opção faz o botão <b>Abrir Veículos</b> enviar o comando
+                    direto sem abrir câmera nem interfone. Desmarque se preferir abrir o vídeo antes de liberar.
+                  </p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer shrink-0 mt-1">
+                  <input
+                    type="checkbox"
+                    checked={formData.abrir_veiculo_sem_video}
+                    onChange={(e) => setFormData({ ...formData, abrir_veiculo_sem_video: e.target.checked })}
+                    className="sr-only peer"
+                  />
+                  <div className="w-14 h-7 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-blue-600"></div>
+                </label>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, abrir_veiculo_sem_video: true })}
+                  className={`px-3.5 py-2 rounded-lg text-xs sm:text-sm font-extrabold border flex items-center justify-center gap-2 transition cursor-pointer ${
+                    formData.abrir_veiculo_sem_video
+                      ? 'bg-blue-600 text-white border-blue-700 shadow-xs'
+                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  <Zap size={15} /> Abrir Portão Sem Vídeo (Direto)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, abrir_veiculo_sem_video: false })}
+                  className={`px-3.5 py-2 rounded-lg text-xs sm:text-sm font-extrabold border flex items-center justify-center gap-2 transition cursor-pointer ${
+                    !formData.abrir_veiculo_sem_video
+                      ? 'bg-slate-800 text-white border-slate-900 shadow-xs'
+                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  <Video size={15} /> Abrir Portão Com Vídeo
+                </button>
+              </div>
+            </div>
+
+            {/* Abertura Direta (Sem Vídeo vs. Com Vídeo) — Portão de Pedestre */}
+            <div className="md:col-span-2 p-5 bg-emerald-50/70 rounded-xl border border-emerald-200 space-y-3">
+              <div className="flex items-start justify-between gap-4">
+                <div className="pr-2">
+                  <label className="text-base font-bold text-slate-800 mb-1 flex items-center gap-2 flex-wrap">
+                    <DoorOpen className="text-emerald-600 shrink-0" size={20} />
+                    <span>Portão de Pedestre — Abrir Portão Sem Vídeo (Direto em 1 Toque)</span>
+                    <span
+                      className={`px-2.5 py-0.5 rounded-full text-xs font-extrabold inline-flex items-center gap-1 ${
+                        formData.abrir_pedestre_sem_video
+                          ? 'bg-emerald-600 text-white'
+                          : 'bg-slate-200 text-slate-700'
+                      }`}
+                    >
+                      {formData.abrir_pedestre_sem_video ? (
+                        <>
+                          <Zap size={12} /> Sem Vídeo (Direto)
+                        </>
+                      ) : (
+                        <>
+                          <Video size={12} /> Com Vídeo e Áudio
+                        </>
+                      )}
+                    </span>
+                  </label>
+                  <p className="text-sm text-slate-600">
+                    Ideal quando a internet do condomínio é lenta ou instável para carregar vídeo: marcar esta opção faz o
+                    botão <b>Abrir Porta</b> enviar o comando de abertura imediatamente, sem depender da câmera. Desmarque
+                    para exigir a visualização do vídeo antes de abrir.
+                  </p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer shrink-0 mt-1">
+                  <input
+                    type="checkbox"
+                    checked={formData.abrir_pedestre_sem_video}
+                    onChange={(e) => setFormData({ ...formData, abrir_pedestre_sem_video: e.target.checked })}
+                    className="sr-only peer"
+                  />
+                  <div className="w-14 h-7 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-emerald-600"></div>
+                </label>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, abrir_pedestre_sem_video: true })}
+                  className={`px-3.5 py-2 rounded-lg text-xs sm:text-sm font-extrabold border flex items-center justify-center gap-2 transition cursor-pointer ${
+                    formData.abrir_pedestre_sem_video
+                      ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs'
+                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  <Zap size={15} /> Abrir Portão Sem Vídeo (Direto)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, abrir_pedestre_sem_video: false })}
+                  className={`px-3.5 py-2 rounded-lg text-xs sm:text-sm font-extrabold border flex items-center justify-center gap-2 transition cursor-pointer ${
+                    !formData.abrir_pedestre_sem_video
+                      ? 'bg-slate-800 text-white border-slate-900 shadow-xs'
+                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  <Video size={15} /> Abrir Portão Com Vídeo
+                </button>
+              </div>
+            </div>
+
             {/* Botão de Emergência SOS no App do Morador */}
             <div className="md:col-span-2 flex items-center justify-between p-5 bg-red-50/60 rounded-xl border border-red-200">
               <div className="pr-4">
@@ -370,6 +525,139 @@ export default function Configuracoes() {
                 />
                 <div className="w-14 h-7 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-rose-600"></div>
               </label>
+            </div>
+
+            {/* Botão de Emergência: Avisar Somente Administração (Portaria, Síndico e Subsíndico) */}
+            <div
+              className={`md:col-span-2 flex items-center justify-between p-5 rounded-xl border transition ${
+                formData.modulo_emergencia
+                  ? 'bg-amber-50/80 border-amber-300'
+                  : 'bg-slate-100 border-slate-200 opacity-60'
+              }`}
+            >
+              <div className="pr-4">
+                <label className="text-base font-bold text-slate-800 mb-1 flex items-center gap-2">
+                  <Siren className="text-amber-600 shrink-0" size={20} />
+                  Botão de Emergência: Avisar Somente Administração (Portaria, Síndico e Subsíndico)
+                </label>
+                <p className="text-sm text-slate-600">
+                  Cada condomínio pode escolher seu modo de atendimento: quando <b>ativado</b>, o botão de emergência
+                  toca o alarme e notifica <b>somente a Portaria, o Síndico e o Subsíndico</b> (sem disparar sirene para
+                  os demais moradores do bloco). Quando desmarcado, avisa o Bloco + Administração.
+                </p>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                <input
+                  type="checkbox"
+                  disabled={!formData.modulo_emergencia}
+                  checked={formData.emergencia_somente_administracao}
+                  onChange={(e) =>
+                    setFormData({ ...formData, emergencia_somente_administracao: e.target.checked })
+                  }
+                  className="sr-only peer"
+                />
+                <div className="w-14 h-7 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-amber-600"></div>
+              </label>
+            </div>
+
+            {/* API DO WHATSAPP (MENSAGENS AUTOMÁTICAS) */}
+            <div className="md:col-span-2 flex items-center justify-between p-5 bg-emerald-50/70 rounded-xl border border-emerald-200">
+              <div className="pr-4">
+                <label className="text-base font-bold text-slate-800 mb-1 flex items-center gap-2">
+                  <MessageSquare className="text-emerald-600 shrink-0" size={20} />
+                  Habilitar API do WhatsApp com Mensagens Automáticas neste Condomínio
+                </label>
+                <p className="text-sm text-slate-600">
+                  Envia automaticamente via WhatsApp Oficial (Meta Cloud API) a confirmação de aprovação do pré-cadastro
+                  com acesso/ramal, códigos de retirada de encomendas na portaria e avisos importantes.
+                </p>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                <input
+                  type="checkbox"
+                  checked={formData.whatsapp_auto_ativo}
+                  onChange={(e) => setFormData({ ...formData, whatsapp_auto_ativo: e.target.checked })}
+                  className="sr-only peer"
+                />
+                <div className="w-14 h-7 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-emerald-600"></div>
+              </label>
+            </div>
+
+            {/* ATENDIMENTO INTELIGENTE POR IA 24H NO WHATSAPP */}
+            <div className="md:col-span-2 flex items-center justify-between p-5 bg-violet-50/70 rounded-xl border border-violet-200">
+              <div className="pr-4">
+                <label className="text-base font-bold text-slate-800 mb-1 flex items-center gap-2">
+                  <Bot className="text-violet-600 shrink-0" size={20} />
+                  Habilitar Atendimento Inteligente por IA 24h no WhatsApp
+                </label>
+                <p className="text-sm text-slate-600">
+                  Permite que o Agente de IA responda automaticamente os moradores deste condomínio 24h por dia (consulta
+                  de ramal, suporte de instalação Android/iPhone, cadastro de dependentes/familiares e reset de senha).
+                </p>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                <input
+                  type="checkbox"
+                  checked={formData.whatsapp_ia_ativo}
+                  onChange={(e) => setFormData({ ...formData, whatsapp_ia_ativo: e.target.checked })}
+                  className="sr-only peer"
+                />
+                <div className="w-14 h-7 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-violet-600"></div>
+              </label>
+            </div>
+
+            {/* PLANO COMERCIAL CONTRATADO DE WHATSAPP & IA */}
+            <div className="md:col-span-2 p-5 bg-slate-50 rounded-xl border border-slate-200">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                <div>
+                  <div className="text-sm font-extrabold text-slate-800">
+                    Plano Comercial Contratado — WhatsApp API &amp; IA 24h
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    Selecionar um plano ajusta automaticamente as chaves de API Automática e IA 24h acima (você também pode personalizá-las individualmente).
+                  </p>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-bold text-slate-600 uppercase mb-1">Plano de Cobrança</label>
+                  <select
+                    value={formData.plano_whatsapp_ia}
+                    onChange={(e) => {
+                      const pl = e.target.value;
+                      if (pl === 'desativado') {
+                        setFormData({ ...formData, plano_whatsapp_ia: pl, whatsapp_auto_ativo: false, whatsapp_ia_ativo: false, valor_mensal_plano_zap_brl: 0 });
+                      } else if (pl === 'notificacoes') {
+                        setFormData({ ...formData, plano_whatsapp_ia: pl, whatsapp_auto_ativo: true, whatsapp_ia_ativo: false, valor_mensal_plano_zap_brl: 149 });
+                      } else if (pl === 'ia_essencial') {
+                        setFormData({ ...formData, plano_whatsapp_ia: pl, whatsapp_auto_ativo: true, whatsapp_ia_ativo: true, valor_mensal_plano_zap_brl: 299 });
+                      } else if (pl === 'ia_ilimitado') {
+                        setFormData({ ...formData, plano_whatsapp_ia: pl, whatsapp_auto_ativo: true, whatsapp_ia_ativo: true, valor_mensal_plano_zap_brl: 499 });
+                      } else {
+                        setFormData({ ...formData, plano_whatsapp_ia: 'sob_demanda', whatsapp_auto_ativo: true, whatsapp_ia_ativo: true, valor_mensal_plano_zap_brl: 0 });
+                      }
+                    }}
+                    className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-800 outline-none focus:border-emerald-500"
+                  >
+                    <option value="sob_demanda">📊 Sob Demanda — Por Atendimento / Notificação + Margem %</option>
+                    <option value="notificacoes">📲 Plano Start — Só API de Notificações Automáticas (Sem IA)</option>
+                    <option value="ia_essencial">🤖 Plano Smart — API WhatsApp + IA 24h (Franquia 150 atend.)</option>
+                    <option value="ia_ilimitado">🚀 Plano Enterprise — API WhatsApp + IA 24h Total (Franquia 500 atend.)</option>
+                    <option value="desativado">🚫 Desativado — Sem API WhatsApp nem IA</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 uppercase mb-1">Mensalidade Fixa do Plano (R$)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={formData.valor_mensal_plano_zap_brl}
+                    onChange={(e) => setFormData({ ...formData, valor_mensal_plano_zap_brl: parseFloat(e.target.value) || 0 })}
+                    className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-800 outline-none focus:border-emerald-500"
+                  />
+                </div>
+              </div>
             </div>
           </div>
         </div>

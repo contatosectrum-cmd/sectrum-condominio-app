@@ -20,12 +20,14 @@ interface Props {
 
 export default function FotoUsuario({ id, rota, temFoto, tamanho = 48, largura, altura, redonda }: Props) {
   const chave = rota ?? `foto_usuario&id=${id}`;
-  const [url, setUrl] = useState<string | null>(cache.get(chave) ?? null);
+  const sufixoSessao = (obterToken() ?? '').slice(-16);
+  const chaveCache = `${sufixoSessao}:${chave}`;
+  const [url, setUrl] = useState<string | null>(cache.get(chaveCache) ?? null);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    setUrl(cache.get(chave) ?? null);
-  }, [chave]);
+    setUrl(cache.get(chaveCache) ?? null);
+  }, [chaveCache]);
 
   useEffect(() => {
     if (!temFoto || url || !ref.current) return;
@@ -37,7 +39,7 @@ export default function FotoUsuario({ id, rota, temFoto, tamanho = 48, largura, 
         const r = await fetch(`/api.php?route=${chave}`, { headers: { Authorization: `Bearer ${obterToken() ?? ''}` } });
         if (!r.ok) return;
         const u = URL.createObjectURL(await r.blob());
-        cache.set(chave, u);
+        cache.set(chaveCache, u);
         if (!cancelado) setUrl(u);
       } catch {
         // sem foto: mantém o ícone
@@ -45,7 +47,7 @@ export default function FotoUsuario({ id, rota, temFoto, tamanho = 48, largura, 
     }, { rootMargin: '200px' });
     obs.observe(ref.current);
     return () => { cancelado = true; obs.disconnect(); };
-  }, [chave, temFoto, url]);
+  }, [chave, chaveCache, temFoto, url]);
 
   const estilo = { width: largura ?? tamanho, height: altura ?? tamanho };
   const forma = redonda ? 'rounded-full' : 'rounded-lg';

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { X } from 'lucide-react';
 import { api, ErroApi } from '../../lib/api';
 import { desbloquearContextoAudioConversa } from '../../lib/interfoneAudio';
@@ -17,6 +18,7 @@ import {
 } from './MoradorHome';
 
 export default function MoradorInterfone() {
+  const navigate = useNavigate();
   const [dadosInterfone, setDadosInterfone] = useState<PainelInterfoneDados | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [discando, setDiscando] = useState(false);
@@ -211,8 +213,21 @@ export default function MoradorInterfone() {
 
   const atenderChamadaInterfone = async (c: ChamadaInterfone) => {
     desbloquearContextoAudioConversa();
+    (window as unknown as { __sectrumBlessVideo?: () => void }).__sectrumBlessVideo?.();
     chamadasIgnoradasRef.current.add(c.call_id);
     setChamadaTocando(null);
+
+    const ehApt =
+      c.tipo === 'apartamento' ||
+      c.source === 'apartamento' ||
+      String(c.device_id || '').toUpperCase().startsWith('APT:') ||
+      String(c.call_id || '').startsWith('apt_');
+
+    if (!ehApt) {
+      (window as unknown as { __sectrumPendingCallKitAnswer?: ChamadaInterfone | null }).__sectrumPendingCallKitAnswer = c;
+      navigate('/morador');
+      return;
+    }
 
     api('morador_interfone_sinalizar', {
       corpo: {

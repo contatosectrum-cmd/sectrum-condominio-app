@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Building2, UserCog, Pencil, Power, LogIn, X, CheckCircle2, AlertTriangle,
-  Sliders, PhoneCall, Calendar, Wrench, Vote, Megaphone, Key, Package, Video, Check, Siren, BellRing,
+  Sliders, PhoneCall, Calendar, Wrench, Vote, Megaphone, Key, Package, Video, Check, Siren, BellRing, MessageSquare, Bot, ScanFace, Trash2,
+  Wallet, FileCheck2, Truck, ShieldCheck, Users,
 } from 'lucide-react';
 import { api, ErroApi } from '../lib/api';
 import { selecionarCondominio } from '../lib/useSessao';
@@ -16,6 +17,8 @@ interface Cliente {
   ativo: boolean;
   app_habilitado: number;
   portaria_autonoma: number;
+  abrir_veiculo_sem_video?: number;
+  abrir_pedestre_sem_video?: number;
   cameras_morador_ativo?: number;
   permite_temporada?: number;
   modulo_airbnb?: number;
@@ -27,10 +30,22 @@ interface Cliente {
   modulo_encomendas?: number;
   modulo_emergencia?: number;
   emergencia_furar_nao_perturbe?: number;
+  emergencia_somente_administracao?: number;
+  whatsapp_auto_ativo?: number;
+  whatsapp_ia_ativo?: number;
+  whatsapp_chat_condominio?: number;
+  modulo_seguranca_facial?: number;
+  modulo_financeiro?: number;
+  modulo_transparencia?: number;
+  modulo_mudancas?: number;
+  modulo_manutencoes?: number;
+  plano_whatsapp_ia?: string;
+  valor_mensal_plano_zap_brl?: number;
   tipo_portaria?: string;
   nome_sindico: string | null;
   email_sindico: string | null;
   total_usuarios: number;
+  total_moradores?: number;
   total_unidades: number;
 }
 
@@ -40,6 +55,8 @@ interface Form {
   cnpj: string;
   app_habilitado: boolean;
   portaria_autonoma: boolean;
+  abrir_veiculo_sem_video: boolean;
+  abrir_pedestre_sem_video: boolean;
   cameras_morador_ativo: boolean;
   permite_temporada: boolean;
   modulo_interfone: boolean;
@@ -50,14 +67,34 @@ interface Form {
   modulo_encomendas: boolean;
   modulo_emergencia: boolean;
   emergencia_furar_nao_perturbe: boolean;
+  emergencia_somente_administracao: boolean;
+  whatsapp_auto_ativo: boolean;
+  whatsapp_ia_ativo: boolean;
+  whatsapp_chat_condominio: boolean;
+  modulo_seguranca_facial: boolean;
+  modulo_financeiro: boolean;
+  modulo_transparencia: boolean;
+  modulo_mudancas: boolean;
+  modulo_manutencoes: boolean;
+  plano_whatsapp_ia: string;
+  valor_mensal_plano_zap_brl: string;
   nome_sindico: string;
   email_sindico: string;
   senha_sindico: string;
 }
 
 type ChaveModulo =
+  | 'modulo_financeiro'
+  | 'modulo_transparencia'
+  | 'modulo_mudancas'
+  | 'modulo_manutencoes'
+  | 'whatsapp_auto_ativo'
+  | 'whatsapp_ia_ativo'
+  | 'whatsapp_chat_condominio'
+  | 'modulo_seguranca_facial'
   | 'modulo_emergencia'
   | 'emergencia_furar_nao_perturbe'
+  | 'emergencia_somente_administracao'
   | 'modulo_interfone'
   | 'modulo_reservas'
   | 'modulo_ocorrencias'
@@ -79,6 +116,78 @@ interface DefinicaoModulo {
 
 const CATALOGO_MODULOS: DefinicaoModulo[] = [
   {
+    chave: 'modulo_financeiro',
+    titulo: 'ERP Financeiro, Rateio, Cobranças PIX & CND Automática',
+    curto: '💳 ERP Financeiro & PIX',
+    descricao: 'Lançamento de rateio em lote, geração de PIX Copia e Cola EMV, Contas a Pagar, envio de 2ª via no WhatsApp e Certidão Negativa (CND) em 1 clique no App do Morador.',
+    icone: Wallet,
+    corAtivo: 'border-emerald-600 bg-emerald-50/80 ring-emerald-600/20',
+    badgeClasses: 'bg-emerald-100 text-emerald-900 border-emerald-300',
+  },
+  {
+    chave: 'modulo_transparencia',
+    titulo: 'Portal da Transparência, Conselho Fiscal & Pasta Digital',
+    curto: '📊 Transparência & Conselho',
+    descricao: 'Balancete em tempo real, anexos de Notas Fiscais/Recibos, parecer digital do Conselho Fiscal, fechamento mensal e biblioteca de Atas, Convenção e Regimento.',
+    icone: FileCheck2,
+    corAtivo: 'border-indigo-600 bg-indigo-50/80 ring-indigo-600/20',
+    badgeClasses: 'bg-indigo-100 text-indigo-900 border-indigo-300',
+  },
+  {
+    chave: 'modulo_mudancas',
+    titulo: 'Módulo Autorização Digital de Mudanças (Entrada / Saída)',
+    curto: '🚚 Mudanças',
+    descricao: 'Solicitação de mudança ou entrega de grande porte pelo morador, reserva de elevador de serviço, dados da transportadora e liberação na Portaria.',
+    icone: Truck,
+    corAtivo: 'border-cyan-600 bg-cyan-50/80 ring-cyan-600/20',
+    badgeClasses: 'bg-cyan-100 text-cyan-900 border-cyan-300',
+  },
+  {
+    chave: 'modulo_manutencoes',
+    titulo: 'Módulo Manutenções Preventivas & Mandatos Legais (NBR 5674)',
+    curto: '🛡️ Manutenções NBR',
+    descricao: 'Controle de vencimentos obrigatórios (AVCB Bombeiros, SPDA Para-raios, Limpeza de Caixa d’Água, Dedetização, Elevadores e Seguro) com semáforo de alertas.',
+    icone: ShieldCheck,
+    corAtivo: 'border-orange-600 bg-orange-50/80 ring-orange-600/20',
+    badgeClasses: 'bg-orange-100 text-orange-900 border-orange-300',
+  },
+  {
+    chave: 'whatsapp_auto_ativo',
+    titulo: 'API do WhatsApp (Mensagens Automáticas)',
+    curto: '📲 API Zap Auto',
+    descricao: 'Disparo automático via WhatsApp Oficial ao aprovar cadastro, chegada de encomendas na portaria e comunicados.',
+    icone: MessageSquare,
+    corAtivo: 'border-emerald-600 bg-emerald-50/80 ring-emerald-600/20',
+    badgeClasses: 'bg-emerald-100 text-emerald-800 border-emerald-300',
+  },
+  {
+    chave: 'whatsapp_ia_ativo',
+    titulo: 'Atendimento Inteligente por IA 24h (WhatsApp)',
+    curto: '🤖 IA 24h Zap',
+    descricao: 'Agente de IA 24h no WhatsApp para tirar dúvidas de moradores, enviar ramal, orientar instalação do app e resetar senha.',
+    icone: Bot,
+    corAtivo: 'border-violet-600 bg-violet-50/80 ring-violet-600/20',
+    badgeClasses: 'bg-violet-100 text-violet-800 border-violet-300',
+  },
+  {
+    chave: 'whatsapp_chat_condominio',
+    titulo: 'Chat do WhatsApp para o Condomínio Responder (Síndico / Admin)',
+    curto: '💬 Chat Síndico',
+    descricao: 'Libera o Chat do WhatsApp para a Administração/Síndico responder e vincular documentos SOMENTE dos moradores/pré-cadastros vinculados ao próprio condomínio.',
+    icone: MessageSquare,
+    corAtivo: 'border-teal-600 bg-teal-50/80 ring-teal-600/20',
+    badgeClasses: 'bg-teal-100 text-teal-800 border-teal-300',
+  },
+  {
+    chave: 'modulo_seguranca_facial',
+    titulo: 'Segurança Facial IA (Selfie x Documento + Lista de Restrição)',
+    curto: '🛡️ Segurança Facial IA',
+    descricao: 'Compara a selfie com a foto do RG/CNH no pré-cadastro (GPU) e libera a Lista de Restrição gravada nos próprios leitores faciais, com tela de alarme para Portaria, Supervisor e Síndico.',
+    icone: ScanFace,
+    corAtivo: 'border-rose-700 bg-rose-50/80 ring-rose-700/20',
+    badgeClasses: 'bg-rose-100 text-rose-900 border-rose-300',
+  },
+  {
     chave: 'modulo_emergencia',
     titulo: 'Botão de Emergência SOS (Médica & Pânico)',
     curto: '🚨 Botão SOS',
@@ -95,6 +204,15 @@ const CATALOGO_MODULOS: DefinicaoModulo[] = [
     icone: BellRing,
     corAtivo: 'border-rose-600 bg-rose-50/80 ring-rose-600/20',
     badgeClasses: 'bg-rose-100 text-rose-800 border-rose-300',
+  },
+  {
+    chave: 'emergencia_somente_administracao',
+    titulo: 'Emergência: Avisar Somente Administração (Portaria, Síndico e Subsíndico)',
+    curto: '🛡️ SOS Só Administração',
+    descricao: 'Quando marcado, o Botão de Emergência avisa somente Portaria, Síndico e Subsíndico (sem disparar sirene para os demais moradores do bloco).',
+    icone: Siren,
+    corAtivo: 'border-amber-600 bg-amber-50/80 ring-amber-600/20',
+    badgeClasses: 'bg-amber-100 text-amber-800 border-amber-300',
   },
   {
     chave: 'modulo_interfone',
@@ -116,18 +234,18 @@ const CATALOGO_MODULOS: DefinicaoModulo[] = [
   },
   {
     chave: 'modulo_enquetes',
-    titulo: 'Módulo Enquetes & Votação',
-    curto: '🗳️ Enquetes',
-    descricao: 'Votações oficiais no App (1 voto auditado por apartamento/unidade) com relatório em tempo real.',
+    titulo: 'Assembleias Digitais (AGO/AGE), Enquetes & Ata Automática',
+    curto: '🗳️ Assembleias & Enquetes',
+    descricao: 'Assembleias Virtuais ponderadas por Fração Ideal, trava opcional de inadimplência (Art. 1.335 CC), enquetes rápidas e geração de Ata Oficial com hash SHA-256.',
     icone: Vote,
     corAtivo: 'border-violet-500 bg-violet-50/70 ring-violet-500/15',
     badgeClasses: 'bg-violet-50 text-violet-700 border-violet-200',
   },
   {
     chave: 'modulo_ocorrencias',
-    titulo: 'Módulo Livro de Ocorrências',
-    curto: '🛠️ Ocorrências',
-    descricao: 'Abertura de chamados de manutenção e ocorrências com foto pelo morador e resposta do síndico.',
+    titulo: 'Livro de Ocorrências, Chamados & Multas Regimentais',
+    curto: '🛠️ Ocorrências & Multas',
+    descricao: 'Chamados com foto pelo morador, SLA de atendimento, notificações de Advertência/Multa regimental e direito de defesa digital auditado.',
     icone: Wrench,
     corAtivo: 'border-amber-500 bg-amber-50/70 ring-amber-500/15',
     badgeClasses: 'bg-amber-50 text-amber-800 border-amber-200',
@@ -175,6 +293,8 @@ const VAZIO: Form = {
   cnpj: '',
   app_habilitado: true,
   portaria_autonoma: false,
+  abrir_veiculo_sem_video: false,
+  abrir_pedestre_sem_video: false,
   cameras_morador_ativo: false,
   permite_temporada: true,
   modulo_interfone: true,
@@ -185,6 +305,17 @@ const VAZIO: Form = {
   modulo_encomendas: true,
   modulo_emergencia: true,
   emergencia_furar_nao_perturbe: true,
+  emergencia_somente_administracao: false,
+  whatsapp_auto_ativo: true,
+  whatsapp_ia_ativo: true,
+  whatsapp_chat_condominio: false,
+  modulo_seguranca_facial: false,
+  modulo_financeiro: false,
+  modulo_transparencia: false,
+  modulo_mudancas: false,
+  modulo_manutencoes: false,
+  plano_whatsapp_ia: 'sob_demanda',
+  valor_mensal_plano_zap_brl: '0.00',
   nome_sindico: '',
   email_sindico: '',
   senha_sindico: '',
@@ -201,6 +332,8 @@ function clienteParaForm(c: Cliente): Form {
     cnpj: c.cnpj ?? '',
     app_habilitado: Number(c.app_habilitado ?? 1) === 1,
     portaria_autonoma: remota,
+    abrir_veiculo_sem_video: Number(c.abrir_veiculo_sem_video ?? 0) === 1,
+    abrir_pedestre_sem_video: Number(c.abrir_pedestre_sem_video ?? 0) === 1,
     cameras_morador_ativo: Number(c.cameras_morador_ativo ?? 0) === 1,
     permite_temporada: Number(c.permite_temporada ?? c.modulo_airbnb ?? 1) === 1,
     modulo_interfone: Number(c.modulo_interfone ?? 1) === 1,
@@ -211,6 +344,17 @@ function clienteParaForm(c: Cliente): Form {
     modulo_encomendas: Number(c.modulo_encomendas ?? 1) === 1,
     modulo_emergencia: Number(c.modulo_emergencia ?? 1) === 1,
     emergencia_furar_nao_perturbe: Number(c.emergencia_furar_nao_perturbe ?? 1) === 1,
+    emergencia_somente_administracao: Number(c.emergencia_somente_administracao ?? 0) === 1,
+    whatsapp_auto_ativo: Number(c.whatsapp_auto_ativo ?? 1) === 1,
+    whatsapp_ia_ativo: Number(c.whatsapp_ia_ativo ?? 1) === 1,
+    whatsapp_chat_condominio: Number(c.whatsapp_chat_condominio ?? 0) === 1,
+    modulo_seguranca_facial: Number(c.modulo_seguranca_facial ?? 0) === 1,
+    modulo_financeiro: Number(c.modulo_financeiro ?? 0) === 1,
+    modulo_transparencia: Number(c.modulo_transparencia ?? 0) === 1,
+    modulo_mudancas: Number(c.modulo_mudancas ?? 0) === 1,
+    modulo_manutencoes: Number(c.modulo_manutencoes ?? 0) === 1,
+    plano_whatsapp_ia: c.plano_whatsapp_ia || 'sob_demanda',
+    valor_mensal_plano_zap_brl: Number(c.valor_mensal_plano_zap_brl ?? 0).toFixed(2),
     nome_sindico: c.nome_sindico ?? '',
     email_sindico: c.email_sindico ?? '',
     senha_sindico: '',
@@ -229,6 +373,10 @@ function SeletorModulosComerciais({
   const marcarTodos = (valor: boolean) => {
     set({
       ...f,
+      whatsapp_auto_ativo: valor,
+      whatsapp_ia_ativo: valor,
+      whatsapp_chat_condominio: valor,
+      plano_whatsapp_ia: valor ? 'sob_demanda' : 'desativado',
       modulo_emergencia: valor,
       emergencia_furar_nao_perturbe: valor,
       modulo_interfone: valor,
@@ -239,7 +387,26 @@ function SeletorModulosComerciais({
       permite_temporada: valor,
       modulo_encomendas: valor,
       cameras_morador_ativo: valor,
+      modulo_seguranca_facial: valor,
+      modulo_financeiro: valor,
+      modulo_transparencia: valor,
+      modulo_mudancas: valor,
+      modulo_manutencoes: valor,
     });
+  };
+
+  const selecionarPlanoComercialZap = (plano: string) => {
+    if (plano === 'desativado') {
+      set({ ...f, plano_whatsapp_ia: plano, whatsapp_auto_ativo: false, whatsapp_ia_ativo: false, valor_mensal_plano_zap_brl: '0.00' });
+    } else if (plano === 'notificacoes') {
+      set({ ...f, plano_whatsapp_ia: plano, whatsapp_auto_ativo: true, whatsapp_ia_ativo: false, valor_mensal_plano_zap_brl: '149.00' });
+    } else if (plano === 'ia_essencial') {
+      set({ ...f, plano_whatsapp_ia: plano, whatsapp_auto_ativo: true, whatsapp_ia_ativo: true, valor_mensal_plano_zap_brl: '299.00' });
+    } else if (plano === 'ia_ilimitado') {
+      set({ ...f, plano_whatsapp_ia: plano, whatsapp_auto_ativo: true, whatsapp_ia_ativo: true, valor_mensal_plano_zap_brl: '499.00' });
+    } else {
+      set({ ...f, plano_whatsapp_ia: 'sob_demanda', whatsapp_auto_ativo: true, whatsapp_ia_ativo: true, valor_mensal_plano_zap_brl: '0.00' });
+    }
   };
 
   return (
@@ -269,6 +436,46 @@ function SeletorModulosComerciais({
           >
             Apenas Controle de Acesso
           </button>
+        </div>
+      </div>
+
+      <div className="mb-3.5 p-3.5 rounded-xl bg-white border border-emerald-200 shadow-xs">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+          <div className="text-xs font-extrabold text-emerald-900 flex items-center gap-1.5">
+            <MessageSquare size={15} className="text-emerald-600" />
+            Plano Comercial de WhatsApp &amp; IA deste Condomínio
+          </div>
+          <span className="text-[11px] font-semibold text-slate-500">
+            Define como a API Oficial da Meta e a IA 24h são tarifadas para este cliente
+          </span>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+          <div className="sm:col-span-2">
+            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Modelo / Plano Contratado</label>
+            <select
+              value={f.plano_whatsapp_ia}
+              onChange={(e) => selecionarPlanoComercialZap(e.target.value)}
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-800 outline-none focus:border-emerald-500"
+            >
+              <option value="sob_demanda">📊 Sob Demanda — Por Atendimento / Notificação + Margem %</option>
+              <option value="notificacoes">📲 Plano Start — Só API de Notificações Automáticas (Sem IA)</option>
+              <option value="ia_essencial">🤖 Plano Smart — API WhatsApp + Atendimento IA 24h (Franquia 150 atend.)</option>
+              <option value="ia_ilimitado">🚀 Plano Enterprise — API WhatsApp + IA 24h Total (Franquia 500 atend.)</option>
+              <option value="desativado">🚫 Desativado — Sem API WhatsApp nem IA</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Mensalidade Fixa Zap/IA (R$)</label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={f.valor_mensal_plano_zap_brl}
+              onChange={(e) => set({ ...f, valor_mensal_plano_zap_brl: e.target.value })}
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-800 outline-none focus:border-emerald-500"
+              placeholder="0.00"
+            />
+          </div>
         </div>
       </div>
 
@@ -349,13 +556,48 @@ function CamposCondominio({ f, set, edicao }: { f: Form; set: (f: Form) => void;
             </div>
           </label>
         </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+          <label className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition ${f.abrir_veiculo_sem_video ? 'bg-blue-50/80 border-blue-500 ring-2 ring-blue-500/15' : 'bg-slate-50 border-slate-200'}`}>
+            <input
+              type="checkbox"
+              className="mt-1 w-4 h-4 accent-blue-600"
+              checked={f.abrir_veiculo_sem_video}
+              onChange={(e) => set({ ...f, abrir_veiculo_sem_video: e.target.checked })}
+            />
+            <div>
+              <div className="text-sm font-bold text-slate-800">🚗 Portão de Veículos: Abrir Sem Vídeo (Direto)</div>
+              <div className="text-xs text-slate-500 mt-0.5">
+                {f.abrir_veiculo_sem_video
+                  ? 'Ativo: Abre o portão de veículos direto em 1 toque sem abrir vídeo nem áudio.'
+                  : 'Desmarcado: Abre primeiro o vídeo/interfone para confirmar antes de liberar.'}
+              </div>
+            </div>
+          </label>
+          <label className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition ${f.abrir_pedestre_sem_video ? 'bg-emerald-50/80 border-emerald-500 ring-2 ring-emerald-500/15' : 'bg-slate-50 border-slate-200'}`}>
+            <input
+              type="checkbox"
+              className="mt-1 w-4 h-4 accent-emerald-600"
+              checked={f.abrir_pedestre_sem_video}
+              onChange={(e) => set({ ...f, abrir_pedestre_sem_video: e.target.checked })}
+            />
+            <div>
+              <div className="text-sm font-bold text-slate-800">🚶 Portão de Pedestre: Abrir Sem Vídeo (Direto)</div>
+              <div className="text-xs text-slate-500 mt-0.5">
+                {f.abrir_pedestre_sem_video
+                  ? 'Ativo: Abre o portão de pedestre direto em 1 toque (ideal p/ internet instável).'
+                  : 'Desmarcado: Abre primeiro o vídeo/interfone para confirmar antes de liberar.'}
+              </div>
+            </div>
+          </label>
+        </div>
       </div>
 
       <label className="flex items-center gap-2 mt-4 font-semibold text-slate-700 cursor-pointer">
         <input type="checkbox" className="w-5 h-5" checked={f.app_habilitado} onChange={(e) => set({ ...f, app_habilitado: e.target.checked })} />
         Habilitar Acesso Geral ao App para Moradores
       </label>
-      <p className="text-xs text-slate-500 ml-7 mt-1">Se desmarcado, os moradores serão bloqueados ao tentar fazer login. Apenas o síndico terá acesso ao painel.</p>
+      <p className="text-xs text-slate-500 ml-7 mt-1">Se desmarcado, os moradores não usam o App (apenas controle de acesso facial). Ao aprovar o cadastro, o WhatsApp notificará apenas que o cadastro foi aprovado e que o morador já pode testar a face nos leitores da portaria.</p>
 
       {/* PAINEL DE MÓDULOS COMERCIAIS CONTRATADOS */}
       <SeletorModulosComerciais f={f} set={set} />
@@ -387,6 +629,9 @@ export default function Condominios() {
   const [novo, setNovo] = useState<Form>(VAZIO);
   const [edicao, setEdicao] = useState<Form | null>(null);
   const [modalModulos, setModalModulos] = useState<Form | null>(null);
+  const [modalExclusao, setModalExclusao] = useState<Cliente | null>(null);
+  const [confirmacaoNome, setConfirmacaoNome] = useState('');
+  const [excluindo, setExcluindo] = useState(false);
   const [aviso, setAviso] = useState<{ tipo: 'ok' | 'erro'; msg: string } | null>(null);
   const [salvando, setSalvando] = useState(false);
   const navigate = useNavigate();
@@ -440,6 +685,17 @@ export default function Condominios() {
           modulo_encomendas: f.modulo_encomendas,
           modulo_emergencia: f.modulo_emergencia,
           emergencia_furar_nao_perturbe: f.emergencia_furar_nao_perturbe,
+          emergencia_somente_administracao: f.emergencia_somente_administracao,
+          whatsapp_auto_ativo: f.whatsapp_auto_ativo,
+          whatsapp_ia_ativo: f.whatsapp_ia_ativo,
+          whatsapp_chat_condominio: f.whatsapp_chat_condominio,
+          modulo_seguranca_facial: f.modulo_seguranca_facial,
+          modulo_financeiro: f.modulo_financeiro,
+          modulo_transparencia: f.modulo_transparencia,
+          modulo_mudancas: f.modulo_mudancas,
+          modulo_manutencoes: f.modulo_manutencoes,
+          plano_whatsapp_ia: f.plano_whatsapp_ia,
+          valor_mensal_plano_zap_brl: f.valor_mensal_plano_zap_brl,
         },
       });
       setAviso({ tipo: 'ok', msg: r.mensagem });
@@ -463,9 +719,55 @@ export default function Condominios() {
     }
   };
 
+  const alternarApp = async (c: Cliente) => {
+    const ativoAtual = Number(c.app_habilitado ?? 1) === 1;
+    const msgConfirm = ativoAtual
+      ? `Desabilitar o App para os moradores de "${c.nome}"?\n\nNesse modo, o sistema enviará no WhatsApp apenas a confirmação de que o cadastro foi aprovado e que o morador já pode testar a face no controle de acesso.`
+      : `Habilitar o App para os moradores de "${c.nome}"?`;
+    if (!confirm(msgConfirm)) return;
+    try {
+      const r = await api<{ mensagem: string }>('alternar_app_condominio', { corpo: { id: c.id } });
+      setAviso({ tipo: 'ok', msg: r.mensagem });
+      carregar();
+    } catch (e) {
+      setAviso({ tipo: 'erro', msg: e instanceof ErroApi ? e.message : 'Erro ao alterar App.' });
+    }
+  };
+
   const acessar = async (c: Cliente) => {
     await selecionarCondominio(c.id);
     navigate('/');
+  };
+
+  const abrirModalExclusao = (c: Cliente) => {
+    setModalExclusao(c);
+    setConfirmacaoNome('');
+  };
+
+  const confirmarExclusaoCondominio = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!modalExclusao) return;
+    setExcluindo(true);
+    setAviso(null);
+    try {
+      const r = await api<{ mensagem: string; resetar_sessao_condominio?: boolean }>('excluir_condominio', {
+        corpo: {
+          id: modalExclusao.id,
+          confirmacao_nome: confirmacaoNome,
+        },
+      });
+      if (r.resetar_sessao_condominio) {
+        await selecionarCondominio(null).catch(() => {});
+      }
+      setAviso({ tipo: 'ok', msg: r.mensagem });
+      setModalExclusao(null);
+      setConfirmacaoNome('');
+      carregar();
+    } catch (err) {
+      setAviso({ tipo: 'erro', msg: err instanceof ErroApi ? err.message : 'Erro ao excluir condomínio.' });
+    } finally {
+      setExcluindo(false);
+    }
   };
 
   return (
@@ -473,6 +775,42 @@ export default function Condominios() {
       {aviso && (
         <div className={`flex items-center gap-2 px-4 py-3 rounded-lg text-sm border-l-4 ${aviso.tipo === 'ok' ? 'bg-emerald-50 border-emerald-500 text-emerald-800' : 'bg-rose-50 border-rose-500 text-rose-800'}`}>
           {aviso.tipo === 'ok' ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />} {aviso.msg}
+        </div>
+      )}
+
+      {/* RESUMO GERAL DE CADASTROS DO SISTEMA SAAS */}
+      {clientes && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="bg-white rounded-2xl p-4 border border-slate-200 border-l-4 border-l-emerald-500 shadow-xs flex items-center gap-3.5">
+            <div className="p-3 rounded-xl bg-emerald-50 text-emerald-600 shrink-0"><Users size={24} /></div>
+            <div>
+              <div className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">Total de Pessoas no Sistema</div>
+              <div className="text-2xl font-extrabold text-slate-900 leading-tight">
+                {clientes.reduce((s, c) => s + Number(c.total_moradores ?? c.total_usuarios ?? 0), 0).toLocaleString('pt-BR')}
+              </div>
+              <div className="text-[11px] text-slate-500 font-semibold">Moradores / pessoas ativas cadastradas</div>
+            </div>
+          </div>
+          <div className="bg-white rounded-2xl p-4 border border-slate-200 border-l-4 border-l-blue-500 shadow-xs flex items-center gap-3.5">
+            <div className="p-3 rounded-xl bg-blue-50 text-blue-600 shrink-0"><Building2 size={24} /></div>
+            <div>
+              <div className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">Total de Unidades</div>
+              <div className="text-2xl font-extrabold text-slate-900 leading-tight">
+                {clientes.reduce((s, c) => s + Number(c.total_unidades ?? 0), 0).toLocaleString('pt-BR')}
+              </div>
+              <div className="text-[11px] text-slate-500 font-semibold">Apartamentos / lotes em todos os clientes</div>
+            </div>
+          </div>
+          <div className="bg-white rounded-2xl p-4 border border-slate-200 border-l-4 border-l-indigo-500 shadow-xs flex items-center gap-3.5">
+            <div className="p-3 rounded-xl bg-indigo-50 text-indigo-600 shrink-0"><CheckCircle2 size={24} /></div>
+            <div>
+              <div className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">Condomínios Ativos</div>
+              <div className="text-2xl font-extrabold text-slate-900 leading-tight">
+                {clientes.filter((c) => c.ativo).length} <span className="text-sm font-bold text-slate-400">/ {clientes.length}</span>
+              </div>
+              <div className="text-[11px] text-slate-500 font-semibold">Carteira ativa no Sectrum SaaS</div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -500,7 +838,7 @@ export default function Condominios() {
                 <th className="py-3 pr-3">Portaria</th>
                 <th className="py-3 pr-3">Módulos Contratados</th>
                 <th className="py-3 pr-3">Síndico Principal</th>
-                <th className="py-3 pr-3">Unidades</th>
+                <th className="py-3 pr-3">Unidades / Pessoas</th>
                 <th className="py-3 pr-3">App Morador</th>
                 <th className="py-3 pr-3">Status SaaS</th>
                 <th className="py-3">Ações</th>
@@ -548,12 +886,28 @@ export default function Condominios() {
                   </td>
                   <td className="py-3 pr-3 text-slate-600">{c.nome_sindico || 'Sem cadastro'}<div className="text-xs text-slate-400">{c.email_sindico}</div></td>
                   <td className="py-3 pr-3">
-                    <span className="bg-slate-100 px-2 py-1 rounded-md font-semibold text-slate-700" title={`${c.total_usuarios} usuários cadastrados`}>
-                      {c.total_unidades} unid. / {c.total_usuarios} usu.
-                    </span>
+                    <div className="flex flex-col gap-1">
+                      <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded-md text-xs font-extrabold w-fit" title="Total de moradores / pessoas ativas neste condomínio">
+                        👥 {(c.total_moradores ?? c.total_usuarios).toLocaleString('pt-BR')} pessoa(s)
+                      </span>
+                      <span className="text-xs font-semibold text-slate-500 px-1" title={`${c.total_usuarios} contas totais (incluindo síndico/portaria)`}>
+                        🏢 {c.total_unidades.toLocaleString('pt-BR')} unid.
+                      </span>
+                    </div>
                   </td>
                   <td className="py-3 pr-3">
-                    {c.app_habilitado ? <span className="text-xs font-semibold text-emerald-700">Liberado</span> : <span className="text-xs font-semibold text-amber-700">Bloqueado</span>}
+                    <button
+                      type="button"
+                      onClick={() => alternarApp(c)}
+                      title="Clique para habilitar ou desabilitar o App para moradores deste condomínio"
+                      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold border transition cursor-pointer ${
+                        c.app_habilitado
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                          : 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100'
+                      }`}
+                    >
+                      {c.app_habilitado ? '📱 Liberado' : '🚫 Só Facial (Sem App)'}
+                    </button>
                   </td>
                   <td className="py-3 pr-3">
                     {c.ativo
@@ -574,6 +928,14 @@ export default function Condominios() {
                       ><Pencil size={14} /> Editar</button>
                       <button onClick={() => alternarStatus(c)} className={`inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-lg cursor-pointer ${c.ativo ? 'bg-rose-50 text-rose-700 hover:bg-rose-100' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'}`}>
                         <Power size={14} /> {c.ativo ? 'Suspender SaaS' : 'Reativar SaaS'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => abrirModalExclusao(c)}
+                        title="Excluir permanentemente este cliente/condomínio do sistema"
+                        className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-lg bg-red-600/10 text-red-700 border border-red-200 hover:bg-red-600 hover:text-white transition cursor-pointer"
+                      >
+                        <Trash2 size={14} /> Excluir
                       </button>
                     </div>
                   </td>
@@ -616,7 +978,7 @@ export default function Condominios() {
               />
               <div>
                 <div className="text-sm font-bold text-slate-800">📱 Habilitar Acesso ao App para Moradores</div>
-                <div className="text-xs font-normal text-slate-500">Se desmarcado, nenhum morador deste condomínio consegue acessar o aplicativo.</div>
+                <div className="text-xs font-normal text-slate-500">Se desmarcado, o condomínio funciona apenas por Reconhecimento Facial e o WhatsApp notificará apenas a aprovação do cadastro para testar a face no controle de acesso.</div>
               </div>
             </label>
 
@@ -660,6 +1022,95 @@ export default function Condominios() {
             <div className="flex gap-3 mt-6">
               <button type="button" onClick={() => setEdicao(null)} className="flex-1 py-2.5 rounded-lg bg-slate-100 font-bold text-slate-700 hover:bg-slate-200 cursor-pointer">Cancelar</button>
               <button disabled={salvando} className="flex-1 py-2.5 rounded-lg bg-amber-500 font-bold text-white hover:bg-amber-600 disabled:opacity-60 cursor-pointer">Salvar Alterações</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* MODAL DE EXCLUSÃO PERMANENTE DE CLIENTE / CONDOMÍNIO */}
+      {modalExclusao && (
+        <div
+          className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4"
+          onClick={() => !excluindo && setModalExclusao(null)}
+        >
+          <form
+            onClick={(e) => e.stopPropagation()}
+            onSubmit={confirmarExclusaoCondominio}
+            className="bg-white rounded-2xl p-6 w-full max-w-lg border-t-4 border-t-red-600 shadow-2xl space-y-4"
+          >
+            <div className="flex justify-between items-start gap-3">
+              <div className="flex items-center gap-2.5">
+                <span className="p-2.5 rounded-xl bg-red-100 text-red-700 shrink-0">
+                  <Trash2 size={22} />
+                </span>
+                <div>
+                  <h2 className="text-lg font-extrabold text-slate-900">Excluir Cliente / Condomínio</h2>
+                  <p className="text-xs text-slate-500">Ação irreversível no banco de dados e arquivos</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={excluindo}
+                onClick={() => setModalExclusao(null)}
+                className="p-1 text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-xs text-red-900 space-y-1.5 leading-relaxed">
+              <div className="font-extrabold text-sm text-red-800">
+                ⚠️ Você está prestes a apagar permanentemente:
+              </div>
+              <div className="font-bold text-slate-900 bg-white/80 px-3 py-2 rounded-lg border border-red-200">
+                #{modalExclusao.id} — {modalExclusao.nome}
+                <div className="text-[11px] font-semibold text-slate-500 mt-0.5">
+                  {modalExclusao.total_unidades} unidade(s) • {modalExclusao.total_usuarios} usuário(s)/morador(es) • Síndico: {modalExclusao.nome_sindico || 'Sem cadastro'}
+                </div>
+              </div>
+              <p>
+                Todos os blocos, unidades, moradores, veículos, pré-cadastros, documentos anexados, conversas de WhatsApp e terminais vinculados a este condomínio serão <b>removidos definitivamente</b>.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-extrabold text-slate-700 mb-1.5">
+                Para confirmar, digite exatamente o nome do condomínio abaixo:
+              </label>
+              <div className="text-xs font-mono font-bold text-red-700 bg-slate-100 px-3 py-1.5 rounded-lg mb-2 select-all">
+                {modalExclusao.nome}
+              </div>
+              <input
+                required
+                autoFocus
+                value={confirmacaoNome}
+                onChange={(e) => setConfirmacaoNome(e.target.value)}
+                placeholder={`Digite "${modalExclusao.nome}"`}
+                className={campo}
+              />
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                disabled={excluindo}
+                onClick={() => setModalExclusao(null)}
+                className="flex-1 py-2.5 rounded-xl bg-slate-100 font-bold text-slate-700 hover:bg-slate-200 cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                disabled={
+                  excluindo ||
+                  confirmacaoNome.trim().replace(/\s+/g, ' ').toLowerCase() !==
+                    modalExclusao.nome.trim().replace(/\s+/g, ' ').toLowerCase()
+                }
+                className="flex-1 py-2.5 rounded-xl bg-red-600 font-extrabold text-white hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Trash2 size={16} />
+                {excluindo ? 'Excluindo...' : 'Excluir Permanentemente'}
+              </button>
             </div>
           </form>
         </div>

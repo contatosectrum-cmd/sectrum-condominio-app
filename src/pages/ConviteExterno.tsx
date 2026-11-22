@@ -25,6 +25,8 @@ export default function ConviteExterno() {
   const [unidade, setUnidade] = useState<string>('');
   const [nome, setNome] = useState('');
   const [documento, setDocumento] = useState('');
+  const [modoEntrada, setModoEntrada] = useState<'pedestre' | 'motorista'>('pedestre');
+  const [placaVeiculo, setPlacaVeiculo] = useState('');
   const [fotoBase64, setFotoBase64] = useState('');
   const [cameraAberta, setCameraAberta] = useState(false);
   const [cameraFalhou, setCameraFalhou] = useState(false);
@@ -49,14 +51,31 @@ export default function ConviteExterno() {
       setCarregando(false);
       return;
     }
-    api<{ unidade: string | null; condominio: string | null; nome_visitante?: string | null; documento?: string | null }>('convite_externo_dados', { query: { t: token } })
+    api<{
+      unidade: string | null;
+      condominio: string | null;
+      nome_visitante?: string | null;
+      documento?: string | null;
+      modo_entrada?: string | null;
+      placa_veiculo?: string | null;
+    }>('convite_externo_dados', { query: { t: token } })
       .then((r) => {
         setUnidade(r.unidade ?? '—');
-        if (r.nome_visitante && r.nome_visitante !== 'Aguardando Preenchimento') {
+        if (
+          r.nome_visitante &&
+          r.nome_visitante !== 'Aguardando Preenchimento' &&
+          r.nome_visitante !== 'Convite Pendente'
+        ) {
           setNome(r.nome_visitante);
         }
         if (r.documento) {
           setDocumento(mascaraCpf(r.documento));
+        }
+        if (r.modo_entrada === 'motorista') {
+          setModoEntrada('motorista');
+        }
+        if (r.placa_veiculo) {
+          setPlacaVeiculo(r.placa_veiculo);
         }
         if (r.condominio) document.title = `Convite de Acesso - ${r.condominio}`;
       })
@@ -140,7 +159,14 @@ export default function ConviteExterno() {
     setEnviando(true);
     try {
       const r = await api<{ mensagem: string; unidade: string | null }>('convite_externo_enviar', {
-        corpo: { t: token, nome, documento, foto_base64: fotoBase64 },
+        corpo: {
+          t: token,
+          nome,
+          documento,
+          modo_entrada: modoEntrada,
+          placa_veiculo: modoEntrada === 'motorista' ? placaVeiculo : undefined,
+          foto_base64: fotoBase64,
+        },
       });
       if (r.unidade) setUnidade(r.unidade);
       setSucessoMsg(r.mensagem);
@@ -216,6 +242,43 @@ export default function ConviteExterno() {
                 onChange={(e) => aoDigitarCpf(e.target.value)}
                 className="w-full p-4 rounded-xl bg-slate-50 border border-slate-300 text-center font-medium outline-none focus:border-blue-600"
               />
+              <div className="pt-1 text-left space-y-2">
+                <div className="text-xs font-bold text-slate-600 text-center">Como você vai chegar ao condomínio?</div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setModoEntrada('pedestre')}
+                    className={`py-2.5 px-3 rounded-xl text-xs font-extrabold border transition cursor-pointer ${
+                      modoEntrada === 'pedestre'
+                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                        : 'bg-slate-50 text-slate-700 border-slate-300'
+                    }`}
+                  >
+                    🚶 A Pé (Pedestre)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setModoEntrada('motorista')}
+                    className={`py-2.5 px-3 rounded-xl text-xs font-extrabold border transition cursor-pointer ${
+                      modoEntrada === 'motorista'
+                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                        : 'bg-slate-50 text-slate-700 border-slate-300'
+                    }`}
+                  >
+                    🚗 De Carro/Moto
+                  </button>
+                </div>
+                {modoEntrada === 'motorista' && (
+                  <input
+                    type="text"
+                    maxLength={10}
+                    placeholder="Placa do Veículo (opcional, ex.: ABC1D23)"
+                    value={placaVeiculo}
+                    onChange={(e) => setPlacaVeiculo(e.target.value.toUpperCase())}
+                    className="w-full p-3 rounded-xl bg-indigo-50/50 border border-indigo-200 text-center text-sm font-mono font-bold uppercase outline-none focus:border-indigo-600"
+                  />
+                )}
+              </div>
             </>
           )}
 

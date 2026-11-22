@@ -13,6 +13,8 @@ interface Convite {
   status: string;
   criado_em: string | null;
   token_convite: string | null;
+  modo_entrada?: string | null;
+  placa_veiculo?: string | null;
   tem_foto: boolean;
 }
 
@@ -33,14 +35,20 @@ function formatarDataHora(s: string | null): string {
 }
 
 function badgeStatus(status: string): { rotulo: string; classe: string } {
-  if (status === 'convite') return { rotulo: 'Aguardando', classe: 'bg-slate-100 text-slate-600' };
-  if (status === 'aguardando') return { rotulo: 'Selfie Pendente', classe: 'bg-yellow-100 text-yellow-800' };
-  if (status === 'presente') return { rotulo: 'Liberado', classe: 'bg-emerald-100 text-emerald-700' };
+  if (status === 'convite') return { rotulo: 'Link Enviado (Falta Selfie)', classe: 'bg-amber-100 text-amber-800' };
+  if (status === 'aguardando_portaria' || status === 'aguardando') {
+    return { rotulo: '✅ Pré-Aprovado (Na Portaria)', classe: 'bg-emerald-100 text-emerald-800' };
+  }
+  if (status === 'presente') return { rotulo: '🟢 Liberado', classe: 'bg-emerald-600 text-white' };
+  if (status === 'cancelado') return { rotulo: 'Removido', classe: 'bg-rose-50 text-rose-600' };
   return { rotulo: 'Finalizado', classe: 'bg-slate-100 text-slate-600' };
 }
 
 export default function MoradorConvites() {
   const [convites, setConvites] = useState<Convite[]>([]);
+  const [nomeNovo, setNomeNovo] = useState('');
+  const [modoNovo, setModoNovo] = useState<'pedestre' | 'motorista'>('pedestre');
+  const [placaNova, setPlacaNova] = useState('');
   const [ocupado, setOcupado] = useState(false);
   const [msg, setMsg] = useState<{ tipo: 'ok' | 'aviso' | 'erro'; texto: string } | null>(null);
 
@@ -110,18 +118,66 @@ export default function MoradorConvites() {
           Crie um link exclusivo para seu visitante preencher os dados e tirar uma selfie antes de chegar.
         </p>
         <form
-          onSubmit={(e) => {
+          onSubmit={async (e) => {
             e.preventDefault();
-            executar('morador_convite_gerar');
+            await executar('morador_convite_gerar', {
+              nome_visitante: nomeNovo.trim() || undefined,
+              modo_entrada: modoNovo,
+              placa_veiculo: modoNovo === 'motorista' ? placaNova.trim() : undefined,
+            });
+            setNomeNovo('');
+            setPlacaNova('');
           }}
+          className="space-y-3"
         >
+          <input
+            type="text"
+            value={nomeNovo}
+            onChange={(e) => setNomeNovo(e.target.value)}
+            placeholder="Nome do visitante (opcional — ele confirma no link)"
+            className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm outline-none focus:border-blue-600"
+          />
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setModoNovo('pedestre')}
+              className={`py-2.5 px-3 rounded-xl text-xs font-extrabold border transition cursor-pointer ${
+                modoNovo === 'pedestre'
+                  ? 'bg-emerald-600 text-white border-emerald-600'
+                  : 'bg-slate-50 text-slate-700 border-slate-200'
+              }`}
+            >
+              🚶 A Pé (Pedestre)
+            </button>
+            <button
+              type="button"
+              onClick={() => setModoNovo('motorista')}
+              className={`py-2.5 px-3 rounded-xl text-xs font-extrabold border transition cursor-pointer ${
+                modoNovo === 'motorista'
+                  ? 'bg-indigo-600 text-white border-indigo-600'
+                  : 'bg-slate-50 text-slate-700 border-slate-200'
+              }`}
+            >
+              🚗 De Veículo (Motorista)
+            </button>
+          </div>
+          {modoNovo === 'motorista' && (
+            <input
+              type="text"
+              maxLength={10}
+              value={placaNova}
+              onChange={(e) => setPlacaNova(e.target.value.toUpperCase())}
+              placeholder="Placa do veículo (opcional, ex.: ABC1D23)"
+              className="w-full px-3.5 py-2.5 rounded-xl bg-indigo-50/40 border border-indigo-200 text-sm font-mono font-bold uppercase outline-none focus:border-indigo-600"
+            />
+          )}
           <button
             type="submit"
             disabled={ocupado}
-            className="w-full py-3.5 px-5 rounded-xl bg-gradient-to-br from-blue-500 to-blue-700 text-white font-bold flex items-center justify-center gap-2 shadow-md shadow-blue-500/25 hover:opacity-95 disabled:opacity-60"
+            className="w-full py-3.5 px-5 rounded-xl bg-gradient-to-br from-blue-500 to-blue-700 text-white font-bold flex items-center justify-center gap-2 shadow-md shadow-blue-500/25 hover:opacity-95 disabled:opacity-60 cursor-pointer"
           >
             <Plus size={18} />
-            <span>{ocupado ? '⏳ Aguarde...' : 'Criar Link de Convite'}</span>
+            <span>{ocupado ? '⏳ Aguarde...' : 'Criar Link de Convite Pré-Aprovado'}</span>
           </button>
         </form>
       </div>
@@ -141,7 +197,11 @@ export default function MoradorConvites() {
             {convites.map((c) => {
               const b = badgeStatus(c.status);
               const link = `${urlBase}?acao=convite_externo&t=${c.token_convite ?? ''}`;
-              const podeAgir = c.status === 'convite' || c.status === 'aguardando';
+              const podeAgir =
+                c.status === 'convite' ||
+                c.status === 'aguardando' ||
+                c.status === 'aguardando_portaria' ||
+                c.status === 'presente';
               return (
                 <div key={c.id} className="border border-slate-200 rounded-[14px] p-4 bg-white space-y-3">
                   <div className="flex items-center justify-between gap-3">
@@ -152,6 +212,10 @@ export default function MoradorConvites() {
                         {c.documento && (
                           <div className="text-xs font-mono text-slate-500">CPF: {formatarCpf(c.documento)}</div>
                         )}
+                        <div className="text-[11px] font-semibold text-slate-500 mt-0.5">
+                          {c.modo_entrada === 'motorista' ? '🚗 Motorista' : '🚶 Pedestre'}
+                          {c.placa_veiculo ? ` • Placa: ${c.placa_veiculo}` : ''}
+                        </div>
                       </div>
                     </div>
                     <span className={`px-3 py-1 rounded-full text-xs font-bold shrink-0 ${b.classe}`}>{b.rotulo}</span>
@@ -207,12 +271,15 @@ export default function MoradorConvites() {
                         type="button"
                         disabled={ocupado}
                         onClick={() =>
-                          window.confirm('Tem certeza que deseja cancelar este convite?') &&
-                          executar('morador_convite_cancelar', { convite_id: c.id })
+                          window.confirm(
+                            c.status === 'presente'
+                              ? 'Deseja remover esta visita e revogar o acesso facial na portaria?'
+                              : 'Tem certeza que deseja cancelar este convite?'
+                          ) && executar('morador_convite_cancelar', { convite_id: c.id })
                         }
-                        className="px-3 py-1.5 rounded-lg bg-red-500 hover:bg-red-600 text-white text-xs font-bold disabled:opacity-60"
+                        className="px-3 py-1.5 rounded-lg bg-red-500 hover:bg-red-600 text-white text-xs font-bold disabled:opacity-60 cursor-pointer"
                       >
-                        ✕ Cancelar
+                        {c.status === 'presente' ? '🗑️ Remover Visita' : '✕ Cancelar'}
                       </button>
                     </div>
                   )}

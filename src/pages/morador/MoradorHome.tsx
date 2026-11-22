@@ -39,6 +39,8 @@ interface Porta {
   nome: string;
   controlador_id?: number;
   controlador_nome?: string;
+  abrir_sem_video?: boolean;
+  modo_abertura?: string;
   online?: boolean;
   status?: 'online' | 'offline';
   latencia_ms?: number | null;
@@ -65,9 +67,12 @@ interface DadosPainel {
   tem_foto: boolean;
   tem_biometria: boolean;
   portas: Porta[];
+  abrir_veiculo_sem_video?: boolean;
+  abrir_pedestre_sem_video?: boolean;
   modulo_interfone?: boolean;
   modulo_emergencia?: boolean;
   emergencia_furar_nao_perturbe?: boolean;
+  emergencia_somente_administracao?: boolean;
   cameras_morador_ativo?: boolean;
   cameras?: CameraMorador[];
   testado_em?: string;
@@ -619,12 +624,14 @@ function ModalCameraPortaMorador({
       void comecarConversa();
       return;
     }
+    if (!cameraIniciada || document.hidden) return;
     // Quando a Voz Automática está ativa na abertura manual da câmera da porta,
-    // aguarda o 1º frame/snapshot (ou 1.2s) para não competir com o handshake de vídeo do leitor facial
-    const delayMs = cameraIniciada ? 150 : 1200;
+    // aguarda o 1º frame/snapshot para não competir com o handshake de vídeo do leitor facial
     const t = window.setTimeout(() => {
-      void comecarConversa();
-    }, delayMs);
+      if (!document.hidden) {
+        void comecarConversa();
+      }
+    }, 200);
     return () => window.clearTimeout(t);
   }, [iniciarConversaAoAbrir, autoVozPorta, cameraIniciada, comecarConversa]);
 
@@ -638,7 +645,7 @@ function ModalCameraPortaMorador({
     let emRequisicao = false;
 
     const buscarAudioPorta = async () => {
-      if (cancelado || emRequisicao) return;
+      if (cancelado || emRequisicao || document.hidden) return;
       emRequisicao = true;
       try {
         const r = await api<{ ok: boolean; audio_b64: string; cursor: number }>('morador_camera_escutar', {
@@ -1972,6 +1979,12 @@ let desbloqueioAudioEmAndamento = false;
  */
 export function desbloquearAudioInterfone(): void {
   try {
+    if (audioDesbloqueado && audioCtxGlobal && audioCtxGlobal.state === 'running') {
+      if (furarNaoPerturbeCondominioAtivo) {
+        definirModoFurarNaoPerturbe(true);
+      }
+      return;
+    }
     const AudioCtx =
       window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     if (AudioCtx) {
@@ -2375,8 +2388,10 @@ export function ModalAlertaEmergenciaAtiva({
 }
 
 function CardBotaoEmergenciaMorador({
+  somenteAdministracao = false,
   onEmergenciaAcionada,
 }: {
+  somenteAdministracao?: boolean;
   onEmergenciaAcionada: (aviso: Aviso) => void;
 }) {
   const [tipoConfirmacao, setTipoConfirmacao] = useState<'medica' | 'seguranca' | null>(null);
@@ -2446,7 +2461,9 @@ function CardBotaoEmergenciaMorador({
                 Botão de Emergência (SOS)
               </h2>
               <p className="text-[11px] font-semibold text-rose-800/90 leading-tight">
-                Toca sirene e avisa imediatamente seu Bloco, Portaria e Síndico
+                {somenteAdministracao
+                  ? 'Toca sirene e avisa imediatamente a Portaria, Síndico e Subsíndico'
+                  : 'Toca sirene e avisa imediatamente seu Bloco, Portaria e Síndico'}
               </p>
             </div>
           </div>
@@ -2517,7 +2534,9 @@ function CardBotaoEmergenciaMorador({
                       : 'Acionar Emergência de Segurança'}
                   </h3>
                   <p className="text-[11px] font-semibold text-rose-100">
-                    Dispara sirene para Moradores do seu Bloco, Portaria e Síndico
+                    {somenteAdministracao
+                      ? 'Dispara sirene para Portaria, Síndico e Subsíndico'
+                      : 'Dispara sirene para Moradores do seu Bloco, Portaria e Síndico'}
                   </p>
                 </div>
               </div>
@@ -3567,6 +3586,30 @@ export function PainelInterfoneDigitalMorador({
 
       {aba === 'discar' ? (
         <div className="space-y-3">
+          {/* Botão direto para chamar a Portaria (toca no navegador e no Telefone IP da guarita) */}
+          <div className="p-3 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white flex items-center justify-between gap-3 shadow-sm">
+            <div className="min-w-0 text-left">
+              <div className="text-xs font-extrabold uppercase tracking-wider text-emerald-100">
+                Atendimento Direto
+              </div>
+              <div className="text-sm sm:text-base font-black leading-tight truncate">
+                Portaria / Guarita
+              </div>
+              <div className="text-[11px] text-emerald-100/90 truncate">
+                Fale por voz em tempo real com o porteiro
+              </div>
+            </div>
+            <button
+              type="button"
+              disabled={discando}
+              onClick={() => onDiscarCodigo('PORTARIA')}
+              className="py-2.5 px-4 rounded-xl bg-white hover:bg-emerald-50 text-emerald-800 font-black text-xs sm:text-sm shadow-md flex items-center gap-1.5 shrink-0 cursor-pointer disabled:opacity-50 transition"
+            >
+              <PhoneCall size={15} />
+              <span>Ligar Agora</span>
+            </button>
+          </div>
+
           {/* Visor de Discagem e Busca em Largura Total (sem cortar o texto em telas mobile) */}
           <div className="space-y-2">
             <div className="relative w-full">
@@ -3834,6 +3877,8 @@ export default function MoradorHome() {
   const [portaFocada, setPortaFocada] = useState<Porta | null>(null);
   const [cameraSelecionada, setCameraSelecionada] = useState<CameraMorador | null>(null);
   const [abrindoDireto, setAbrindoDireto] = useState<string | null>(null);
+  const [portaAbertaAgora, setPortaAbertaAgora] = useState<string | null>(null);
+  const timerPortaAbertaRef = useRef<number | null>(null);
   const [testandoEquipamentos, setTestandoEquipamentos] = useState(false);
   const [bioDisp, setBioDisp] = useState(false);
   const [msg, setMsg] = useState<Aviso | null>(null);
@@ -4041,6 +4086,7 @@ export default function MoradorHome() {
       navigator.serviceWorker.addEventListener('message', aoMensagemSw);
     }
     document.addEventListener('visibilitychange', verificarInterfone);
+    window.addEventListener('sectrum_verificar_interfone', verificarInterfone);
 
     verificarInterfone();
     const timer = window.setInterval(verificarInterfone, 1200);
@@ -4051,10 +4097,19 @@ export default function MoradorHome() {
         navigator.serviceWorker.removeEventListener('message', aoMensagemSw);
       }
       document.removeEventListener('visibilitychange', verificarInterfone);
+      window.removeEventListener('sectrum_verificar_interfone', verificarInterfone);
     };
   }, [chamadaEmCurso?.call_id, sessaoAptAtiva?.call_id]);
 
-  const atenderChamadaInterfone = async (c: ChamadaInterfone) => {
+  const callIdsAtendidosRef = useRef<Set<string>>(new Set());
+
+  const atenderChamadaInterfone = useCallback(async (c: ChamadaInterfone) => {
+    if (c.call_id && callIdsAtendidosRef.current.has(c.call_id)) {
+      return;
+    }
+    if (c.call_id) {
+      callIdsAtendidosRef.current.add(c.call_id);
+    }
     desbloquearContextoAudioConversa();
     (window as unknown as { __sectrumBlessVideo?: () => void }).__sectrumBlessVideo?.();
     chamadasIgnoradasRef.current.add(c.call_id);
@@ -4063,18 +4118,18 @@ export default function MoradorHome() {
     const ehApt =
       c.tipo === 'apartamento' ||
       c.source === 'apartamento' ||
-      !c.controlador_id ||
-      String(c.device_id || '').toUpperCase().startsWith('APT:');
-
-    api('morador_interfone_sinalizar', {
-      corpo: {
-        call_id: c.call_id,
-        device_id: c.device_id,
-        acao: 'answer',
-      },
-    }).catch(() => undefined);
+      String(c.device_id || '').toUpperCase().startsWith('APT:') ||
+      String(c.call_id || '').startsWith('apt_');
 
     if (ehApt) {
+      api('morador_interfone_sinalizar', {
+        corpo: {
+          call_id: c.call_id,
+          device_id: c.device_id,
+          acao: 'answer',
+        },
+      }).catch(() => undefined);
+
       setSessaoAptAtiva({
         call_id: c.call_id,
         status: 'answered',
@@ -4085,20 +4140,70 @@ export default function MoradorHome() {
       return;
     }
 
-    setChamadaEmCurso(c);
+    const respSinal = await api<{
+      controlador_id?: number;
+      porta?: string;
+      nome_portaria?: string;
+    }>('morador_interfone_sinalizar', {
+      corpo: {
+        call_id: c.call_id,
+        device_id: c.device_id,
+        acao: 'answer',
+      },
+    }).catch(() => null);
+
+    let ctrlId = Number(c.controlador_id || respSinal?.controlador_id || 0);
+    let portaAlvo = c.porta || respSinal?.porta || (ctrlId > 0 ? `${ctrlId}|1` : '');
+    let nomePortaria = c.nome_portaria || respSinal?.nome_portaria || c.origem_nome || 'Portaria';
+
+    if (!portaAlvo && dados?.portas?.length) {
+      const pMatch = dados.portas[0];
+      portaAlvo = pMatch.valor;
+      ctrlId = Number(pMatch.controlador_id || pMatch.valor.split('|')[0] || 0);
+      if (!c.nome_portaria && pMatch.nome) {
+        nomePortaria = pMatch.nome;
+      }
+    }
+
+    if (!portaAlvo) {
+      setSessaoAptAtiva({
+        call_id: c.call_id,
+        status: 'answered',
+        direcao: 'recebida',
+        contraparte_nome: nomePortaria,
+        device_id: c.device_id,
+      });
+      return;
+    }
+
+    const chamadaCompleta: ChamadaInterfone = {
+      ...c,
+      controlador_id: ctrlId,
+      porta: portaAlvo,
+      nome_portaria: nomePortaria,
+    };
+
+    setChamadaEmCurso(chamadaCompleta);
     setIniciarVozModal(true);
     setPortaModal({
-      valor: c.porta,
-      nome: `${c.nome_portaria} (Interfone)`,
+      valor: portaAlvo,
+      nome: nomePortaria.includes('Interfone') ? nomePortaria : `${nomePortaria} (Interfone)`,
     });
-  };
+  }, [dados?.portas]);
 
   useEffect(() => {
+    const win = window as unknown as { __sectrumPendingCallKitAnswer?: ChamadaInterfone | null };
+    if (win.__sectrumPendingCallKitAnswer?.call_id) {
+      const pendente = win.__sectrumPendingCallKitAnswer;
+      win.__sectrumPendingCallKitAnswer = null;
+      atenderChamadaInterfone(pendente);
+    }
+
     const aoCallKitAtender = (ev: Event) => {
       const c = (ev as CustomEvent<ChamadaInterfone | undefined>)?.detail;
+      win.__sectrumPendingCallKitAnswer = null;
       if (c?.call_id) {
-        chamadasIgnoradasRef.current.add(c.call_id);
-        setChamadaTocando(null);
+        atenderChamadaInterfone(c);
       }
     };
     const aoCallKitRecusar = (ev: Event) => {
@@ -4135,7 +4240,7 @@ export default function MoradorHome() {
       window.removeEventListener('sectrum-callkit-recusar', aoCallKitRecusar);
       window.removeEventListener('sectrum-callkit-atendida-nativa', aoCallKitAtendidaNativa);
     };
-  }, []);
+  }, [atenderChamadaInterfone]);
 
   const recusarChamadaInterfone = async (c: ChamadaInterfone) => {
     chamadasIgnoradasRef.current.add(c.call_id);
@@ -4204,13 +4309,65 @@ export default function MoradorHome() {
     }
   };
 
-  const acionarAberturaPorta = (porta: Porta) => {
+  const deveAbrirPortaSemVideo = (porta: Porta): boolean => {
+    if (porta.abrir_sem_video !== undefined) {
+      return Boolean(porta.abrir_sem_video);
+    }
+    const info = classificarPorta(porta);
+    return info.ehVeiculo
+      ? Boolean(dados?.abrir_veiculo_sem_video)
+      : Boolean(dados?.abrir_pedestre_sem_video);
+  };
+
+  const abrirModalCameraPorta = (porta: Porta) => {
     desbloquearContextoAudioConversa();
     (window as unknown as { __sectrumBlessVideo?: () => void }).__sectrumBlessVideo?.();
     focarPortaECamera(porta);
-    setIniciarVozModal(obterAutoVozPorta());
+    const info = classificarPorta(porta);
+    // No portão de veículos o motorista fica distante do leitor facial, evitando abrir o microfone automático sem necessidade
+    setIniciarVozModal(!info.ehVeiculo && obterAutoVozPorta());
     setChamadaEmCurso(null);
     setPortaModal(porta);
+  };
+
+  const abrirPortaDiretoSemVideo = async (porta: Porta) => {
+    if (abrindoDireto) return;
+    focarPortaECamera(porta);
+    setAbrindoDireto(porta.valor);
+    setMsg(null);
+    try {
+      const r = await api<{ tipo: 'ok' | 'erro'; mensagem: string; hardware?: { modo: string } }>(
+        'morador_abrir_porta',
+        {
+          corpo: { comando_abertura: porta.valor },
+        },
+      );
+      const simulado =
+        r.hardware?.modo === 'simulado' ? ' (modo SIMULADO: nenhum comando foi enviado ao equipamento)' : '';
+      const info = classificarPorta(porta);
+      setMsg({ tipo: r.tipo, texto: `${r.mensagem} (${info.titulo})${simulado}` });
+      if (r.tipo === 'ok') {
+        setPortaAbertaAgora(porta.valor);
+        if (timerPortaAbertaRef.current) {
+          window.clearTimeout(timerPortaAbertaRef.current);
+        }
+        timerPortaAbertaRef.current = window.setTimeout(() => {
+          setPortaAbertaAgora((atual) => (atual === porta.valor ? null : atual));
+        }, 3500);
+      }
+    } catch (e) {
+      setMsg({ tipo: 'erro', texto: msgErro(e, 'Falha ao acionar portão.') });
+    } finally {
+      setAbrindoDireto(null);
+    }
+  };
+
+  const acionarAberturaPorta = (porta: Porta) => {
+    if (deveAbrirPortaSemVideo(porta)) {
+      void abrirPortaDiretoSemVideo(porta);
+      return;
+    }
+    abrirModalCameraPorta(porta);
   };
 
   const configurarBiometria = async () => {
@@ -4343,7 +4500,10 @@ export default function MoradorHome() {
 
       {/* Card SOS — Botão de Emergência (Médica e Segurança) — exibido se habilitado para o condomínio */}
       {dados.modulo_emergencia !== false && (
-        <CardBotaoEmergenciaMorador onEmergenciaAcionada={(av) => setMsg(av)} />
+        <CardBotaoEmergenciaMorador
+          somenteAdministracao={Boolean(dados.emergencia_somente_administracao)}
+          onEmergenciaAcionada={(av) => setMsg(av)}
+        />
       )}
 
       {/* Card 2 — Abertura Remota + Mosaico Ao Vivo logo abaixo do botão ABRIR PORTA */}
@@ -4430,6 +4590,8 @@ export default function MoradorHome() {
           >
             {dados.portas.map((p) => {
               const estaAbrindo = abrindoDireto === p.valor;
+              const foiAbertaAgora = portaAbertaAgora === p.valor;
+              const semVideo = deveAbrirPortaSemVideo(p);
               const selecionada = portaFocada?.valor === p.valor;
               const estaOnline = p.online !== false;
               const info = classificarPorta(p);
@@ -4454,7 +4616,7 @@ export default function MoradorHome() {
                           : 'bg-slate-50/90 hover:bg-slate-100/80 border-slate-200 text-slate-900'
                   }`}
                 >
-                  {/* Topo do Card: Etiqueta de Tipo (Veículos vs Pedestre) + Status Online */}
+                  {/* Topo do Card: Etiqueta de Tipo (Veículos vs Pedestre) + Status Online + Ver Câmera opcional */}
                   <div className="flex items-center justify-between gap-1">
                     <span
                       className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] sm:text-[10px] font-extrabold uppercase tracking-tight border ${
@@ -4468,17 +4630,32 @@ export default function MoradorHome() {
                       {info.etiqueta}
                     </span>
 
-                    {estaOnline ? (
-                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-white/90 text-emerald-800 border border-emerald-300 text-[9px] sm:text-[10px] font-extrabold shrink-0">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                        Online
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-300 text-[9px] sm:text-[10px] font-extrabold shrink-0">
-                        <span className="w-1.5 h-1.5 rounded-full bg-rose-600" />
-                        Off-line
-                      </span>
-                    )}
+                    <div className="flex items-center gap-1 shrink-0">
+                      {semVideo && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            abrirModalCameraPorta(p);
+                          }}
+                          title="Abrir câmera e interfone desta porta"
+                          className="inline-flex items-center justify-center w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-white hover:bg-slate-100 text-slate-600 border border-slate-300 transition cursor-pointer"
+                        >
+                          <Video size={11} />
+                        </button>
+                      )}
+                      {estaOnline ? (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-white/90 text-emerald-800 border border-emerald-300 text-[9px] sm:text-[10px] font-extrabold shrink-0">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                          Online
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-300 text-[9px] sm:text-[10px] font-extrabold shrink-0">
+                          <span className="w-1.5 h-1.5 rounded-full bg-rose-600" />
+                          Off-line
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   {/* Corpo do Card: Ícone em destaque (Carro para veículos / Porta para pedestres) + Nome legível */}
@@ -4517,19 +4694,29 @@ export default function MoradorHome() {
                       acionarAberturaPorta(p);
                     }}
                     className={`w-full py-2 sm:py-2.5 px-2 rounded-xl disabled:opacity-60 text-white text-xs sm:text-sm font-extrabold tracking-wide shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
-                      !estaOnline
-                        ? 'bg-rose-600 hover:bg-rose-700 active:bg-rose-800'
-                        : info.ehVeiculo
-                          ? 'bg-blue-600 hover:bg-blue-700 active:bg-blue-800'
-                          : info.ehSaida
-                            ? 'bg-teal-600 hover:bg-teal-700 active:bg-teal-800'
-                            : 'bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700'
+                      foiAbertaAgora
+                        ? 'bg-emerald-600 ring-2 ring-emerald-300'
+                        : !estaOnline
+                          ? 'bg-rose-600 hover:bg-rose-700 active:bg-rose-800'
+                          : info.ehVeiculo
+                            ? 'bg-blue-600 hover:bg-blue-700 active:bg-blue-800'
+                            : info.ehSaida
+                              ? 'bg-teal-600 hover:bg-teal-700 active:bg-teal-800'
+                              : 'bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700'
                     }`}
                   >
                     {estaAbrindo ? (
-                      '⏳ ABRINDO...'
+                      <>
+                        <RefreshCw size={14} className="animate-spin shrink-0" />
+                        <span>ABRINDO...</span>
+                      </>
+                    ) : foiAbertaAgora ? (
+                      <>
+                        <CheckCircle2 size={15} className="shrink-0" />
+                        <span>PORTÃO ABERTO!</span>
+                      </>
                     ) : !estaOnline ? (
-                      '⚠️ TESTAR PORTA'
+                      semVideo ? '⚠️ ABRIR MESMO ASSIM' : '⚠️ TESTAR PORTA'
                     ) : info.ehVeiculo ? (
                       <>
                         <Car size={15} className="shrink-0" />
@@ -4573,6 +4760,7 @@ export default function MoradorHome() {
 
 let pushSyncEmAndamento = false;
 let pushUltimoTokenEnviado = '';
+let pushUltimoCheckTs = 0;
 
 /**
  * Registra e sincroniza a assinatura W3C Web Push (Apple Push iOS 16.4+/17/18 + Google FCM Android)
@@ -4580,7 +4768,15 @@ let pushUltimoTokenEnviado = '';
  */
 export async function sincronizarWebPushInterfone(): Promise<void> {
   if (pushSyncEmAndamento) return;
-  if (!obterTokenInterfone()) return;
+  const tokInterfone = obterTokenInterfone();
+  if (!tokInterfone) return;
+  const sufixoTok = tokInterfone.slice(-16);
+  if (
+    pushUltimoTokenEnviado.startsWith(`${sufixoTok}:`) &&
+    Date.now() - pushUltimoCheckTs < 120000
+  ) {
+    return;
+  }
 
   // No App Nativo iOS, as chamadas em segundo plano usam Apple CallKit nativo (tela cheia de ligação estilo WhatsApp).
   // Limpa eventual assinatura antiga de Safari Web Push no servidor para não enviar banners repetidos de texto.
@@ -4589,13 +4785,14 @@ export async function sincronizarWebPushInterfone(): Promise<void> {
     (document.documentElement.classList.contains('sectrum-ios-native') ||
       window.Capacitor?.getPlatform?.() === 'ios')
   ) {
-    const chaveIos = `ios-callkit:${obterTokenInterfone()?.slice(-16) || ''}`;
+    const chaveIos = `${sufixoTok}:ios-callkit`;
     if (pushUltimoTokenEnviado !== chaveIos) {
       pushUltimoTokenEnviado = chaveIos;
       api('salvar_fcm_token', {
         corpo: { subscription: null, fcm_token: '' },
       }).catch(() => undefined);
     }
+    pushUltimoCheckTs = Date.now();
     return;
   }
 
@@ -4613,10 +4810,10 @@ export async function sincronizarWebPushInterfone(): Promise<void> {
     if (Notification.permission !== 'granted') return;
 
     const reg = await navigator.serviceWorker
-      .register('/sw-push.js?v=20261020d', { scope: '/', updateViaCache: 'none' })
+      .register('/sw-push.js?v=20261110', { scope: '/', updateViaCache: 'none' })
       .catch(() => navigator.serviceWorker.ready);
 
-    if (reg) {
+    if (reg && Date.now() - pushUltimoCheckTs >= 120000) {
       reg.update().catch(() => undefined);
     }
 
@@ -4680,6 +4877,7 @@ export async function sincronizarWebPushInterfone(): Promise<void> {
         });
         pushUltimoTokenEnviado = chaveEnvio;
       }
+      pushUltimoCheckTs = Date.now();
       localStorage.setItem('sectrum_vapid_ver', 'v2');
     }
   } catch {
@@ -4915,6 +5113,7 @@ export function MonitorGlobalInterfone() {
       navigator.serviceWorker.addEventListener('message', aoMensagemSw);
     }
     document.addEventListener('visibilitychange', verificar);
+    window.addEventListener('sectrum_verificar_interfone', verificar);
 
     verificar();
     const timer = window.setInterval(verificar, 1200);
@@ -4925,6 +5124,7 @@ export function MonitorGlobalInterfone() {
         navigator.serviceWorker.removeEventListener('message', aoMensagemSw);
       }
       document.removeEventListener('visibilitychange', verificar);
+      window.removeEventListener('sectrum_verificar_interfone', verificar);
     };
   }, [paginaJaMonitora, chamadaEmCurso?.call_id, sessaoAptAtiva?.call_id]);
 
@@ -5024,29 +5224,38 @@ export function MonitorGlobalInterfone() {
     }
   };
 
+  const callIdsAtendidosGlobalRef = useRef<Set<string>>(new Set());
+
   const atender = useCallback(async (c: ChamadaInterfone) => {
+    if (c.call_id && callIdsAtendidosGlobalRef.current.has(c.call_id)) {
+      return;
+    }
+    if (c.call_id) {
+      callIdsAtendidosGlobalRef.current.add(c.call_id);
+    }
     if (!obterToken()) {
       restaurarSessaoInterfone();
     }
     desbloquearContextoAudioConversa();
+    (window as unknown as { __sectrumBlessVideo?: () => void }).__sectrumBlessVideo?.();
     chamadasIgnoradasRef.current.add(c.call_id);
     setChamadaTocando(null);
 
     const ehApt =
       c.tipo === 'apartamento' ||
       c.source === 'apartamento' ||
-      !c.controlador_id ||
-      String(c.device_id || '').toUpperCase().startsWith('APT:');
-
-    api('morador_interfone_sinalizar', {
-      corpo: {
-        call_id: c.call_id,
-        device_id: c.device_id,
-        acao: 'answer',
-      },
-    }).catch(() => undefined);
+      String(c.device_id || '').toUpperCase().startsWith('APT:') ||
+      String(c.call_id || '').startsWith('apt_');
 
     if (ehApt) {
+      api('morador_interfone_sinalizar', {
+        corpo: {
+          call_id: c.call_id,
+          device_id: c.device_id,
+          acao: 'answer',
+        },
+      }).catch(() => undefined);
+
       setSessaoAptAtiva({
         call_id: c.call_id,
         status: 'answered',
@@ -5057,22 +5266,72 @@ export function MonitorGlobalInterfone() {
       return;
     }
 
-    setChamadaEmCurso(c);
+    const respSinal = await api<{
+      controlador_id?: number;
+      porta?: string;
+      nome_portaria?: string;
+    }>('morador_interfone_sinalizar', {
+      corpo: {
+        call_id: c.call_id,
+        device_id: c.device_id,
+        acao: 'answer',
+      },
+    }).catch(() => null);
+
+    let ctrlId = Number(c.controlador_id || respSinal?.controlador_id || 0);
+    let portaAlvo = c.porta || respSinal?.porta || (ctrlId > 0 ? `${ctrlId}|1` : '');
+    let nomePortaria = c.nome_portaria || respSinal?.nome_portaria || c.origem_nome || 'Portaria';
+
+    if (!portaAlvo && obterToken()) {
+      const painel = await api<DadosPainel>('morador_painel').catch(() => null);
+      const pMatch = painel?.portas?.[0];
+      if (pMatch) {
+        portaAlvo = pMatch.valor;
+        ctrlId = Number(pMatch.controlador_id || pMatch.valor.split('|')[0] || 0);
+        if (!c.nome_portaria && pMatch.nome) {
+          nomePortaria = pMatch.nome;
+        }
+      }
+    }
+
+    if (!portaAlvo) {
+      setSessaoAptAtiva({
+        call_id: c.call_id,
+        status: 'answered',
+        direcao: 'recebida',
+        contraparte_nome: nomePortaria,
+        device_id: c.device_id,
+      });
+      return;
+    }
+
+    const chamadaCompleta: ChamadaInterfone = {
+      ...c,
+      controlador_id: ctrlId,
+      porta: portaAlvo,
+      nome_portaria: nomePortaria,
+    };
+
+    setChamadaEmCurso(chamadaCompleta);
     setPortaModal({
-      valor: c.porta,
-      nome: `${c.nome_portaria} (Interfone)`,
+      valor: portaAlvo,
+      nome: nomePortaria.includes('Interfone') ? nomePortaria : `${nomePortaria} (Interfone)`,
     });
   }, []);
 
+  const moradorHomeAtivo =
+    Boolean(obterToken()) && (local.pathname === '/morador' || local.pathname === '/morador/');
+
   useEffect(() => {
     const win = window as unknown as { __sectrumPendingCallKitAnswer?: ChamadaInterfone | null };
-    if (win.__sectrumPendingCallKitAnswer?.call_id) {
+    if (!moradorHomeAtivo && win.__sectrumPendingCallKitAnswer?.call_id) {
       const pendente = win.__sectrumPendingCallKitAnswer;
       win.__sectrumPendingCallKitAnswer = null;
       atender(pendente);
     }
 
     const aoCallKitAtender = (ev: Event) => {
+      if (moradorHomeAtivo) return;
       const c = (ev as CustomEvent<ChamadaInterfone | undefined>)?.detail;
       win.__sectrumPendingCallKitAnswer = null;
       if (c?.call_id) {
@@ -5117,7 +5376,7 @@ export function MonitorGlobalInterfone() {
       window.removeEventListener('sectrum-callkit-recusar', aoCallKitRecusar);
       window.removeEventListener('sectrum-callkit-atendida-nativa', aoCallKitAtendidaNativa);
     };
-  }, [atender, paginaJaMonitora]);
+  }, [atender, paginaJaMonitora, moradorHomeAtivo]);
 
   if (paginaJaMonitora && !sessaoAptAtiva && !portaModal && !emergenciaAtiva) {
     return null;

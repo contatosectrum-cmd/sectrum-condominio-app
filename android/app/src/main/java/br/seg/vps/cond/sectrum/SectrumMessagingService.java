@@ -52,18 +52,34 @@ public class SectrumMessagingService extends FirebaseMessagingService {
         switch (tipo) {
             case "interfone": {
                 if (pulso > 1) return; // repetições: o serviço de plantão já está acompanhando
-                Intent dados = new Intent();
-                dados.putExtra(SectrumGuardService.EXTRA_EVENTO, "interfone");
-                dados.putExtra(SectrumGuardService.EXTRA_CALL_ID, valor(d, "call_id"));
-                dados.putExtra(SectrumGuardService.EXTRA_ORIGEM, extrairOrigem(d));
-                dados.putExtra(SectrumGuardService.EXTRA_UNIDADE, valor(d, "unidade"));
-                if (!SectrumGuardService.iniciar(this, dados)) {
-                    SectrumGuardService.dispararChamada(this, extrairOrigem(d), valor(d, "unidade"));
-                }
+                String callId = valor(d, "call_id");
+                String origem = extrairOrigem(d);
+                String unidade = valor(d, "unidade");
+                String url = valor(d, "url");
+
+                // 1. Acorda o dispositivo imediatamente (tela acende no escuro/bloqueada)
+                SectrumGuardService.acordarDispositivo(this);
+
+                // 2. Dispara a notificação de chamada em tela cheia com toque e botões ATENDER/RECUSAR IMEDIATAMENTE
+                SectrumGuardService.dispararChamada(this, origem, unidade, callId, url);
+
+                // 3. Tenta iniciar o serviço curto de monitoramento em segundo plano (se o OS permitir)
+                try {
+                    Intent dados = new Intent();
+                    dados.putExtra(SectrumGuardService.EXTRA_EVENTO, "interfone");
+                    dados.putExtra(SectrumGuardService.EXTRA_CALL_ID, callId);
+                    dados.putExtra(SectrumGuardService.EXTRA_ORIGEM, origem);
+                    dados.putExtra(SectrumGuardService.EXTRA_UNIDADE, unidade);
+                    dados.putExtra("sectrum_url", url);
+                    SectrumGuardService.iniciar(this, dados);
+                } catch (Exception ignored) {}
                 return;
             }
             case "interfone_encerrado": {
                 SectrumAudioSynth.pararToqueInterfone(this);
+                try {
+                    stopService(new Intent(this, SectrumGuardService.class));
+                } catch (Exception ignored) {}
                 NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
                 if (nm != null) nm.cancel(SectrumGuardService.NOTIF_ID_CALL);
                 mostrarNotificacaoComum(d);

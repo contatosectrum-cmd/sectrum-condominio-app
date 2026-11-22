@@ -64,7 +64,47 @@ public class MainActivity extends BridgeActivity {
         desligarServicoLegado24h();
         SectrumMessagingService.enviarTokenAoServidor(this, false);
         configurarBotaoVoltarAndroid();
+        iniciarAutoSyncSessao();
         abrirUrlDaNotificacao(getIntent());
+    }
+
+    /**
+     * Sincroniza periodicamente o token da sessão do morador salvo no localStorage do WebView
+     * com as preferências nativas do Android (SharedPreferences).
+     * Garante que mesmo que o morador já estivesse logado antes da atualização, o token FCM (fcmapp:...)
+     * seja registrado no servidor para que o aparelho toque e acenda mesmo com o app fechado e tela bloqueada.
+     */
+    private void iniciarAutoSyncSessao() {
+        final String jsSync =
+                "(function() {" +
+                "  try {" +
+                "    var tok = localStorage.getItem('sectrum_token') || localStorage.getItem('sectrum_interfone_token');" +
+                "    var usu = localStorage.getItem('sectrum_usuario') || localStorage.getItem('sectrum_interfone_usuario') || '{}';" +
+                "    var srv = localStorage.getItem('sectrum_server_url') || 'https://cond.vps.seg.br';" +
+                "    if (tok && window.SectrumAndroid && window.SectrumAndroid.salvarSessaoNativa) {" +
+                "      window.SectrumAndroid.salvarSessaoNativa(tok, typeof usu === 'string' ? usu : JSON.stringify(usu), srv);" +
+                "    }" +
+                "  } catch(e) {}" +
+                "})();";
+
+        final android.os.Handler h = new android.os.Handler(android.os.Looper.getMainLooper());
+        Runnable r = new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    if (getBridge() != null && getBridge().getWebView() != null) {
+                        getBridge().getWebView().evaluateJavascript(jsSync, null);
+                    }
+                } catch (Exception ignored) {}
+                if (estaEmPrimeiroPlano) {
+                    h.postDelayed(this, 5000L);
+                } else {
+                    h.postDelayed(this, 20000L);
+                }
+            }
+        };
+        h.postDelayed(r, 1200L);
+        h.postDelayed(r, 3500L);
     }
 
     /**
@@ -77,14 +117,29 @@ public class MainActivity extends BridgeActivity {
         } catch (Exception ignored) {}
     }
 
-    /** Notificação tocada: abre a tela indicada pelo servidor (ex.: /morador?emergencia_id=10). */
+    /** Notificação tocada ou FullScreenIntent: abre a tela indicada pelo servidor ou tela de interfone. */
     private void abrirUrlDaNotificacao(Intent intent) {
         if (intent == null) return;
-        final String url = intent.getStringExtra("sectrum_url");
+        String url = intent.getStringExtra("sectrum_url");
+        String evento = intent.getStringExtra("sectrum_evento");
+        String callId = intent.getStringExtra("call_id");
+
+        if ((url == null || url.isEmpty()) && "interfone".equals(evento)) {
+            url = "/morador" + (callId != null && !callId.isEmpty() ? "?call_id=" + callId : "");
+        }
         if (url == null || !url.startsWith("/") || url.startsWith("//")) return;
-        intent.removeExtra("sectrum_url");
-        final String js = "try{var u=" + JSONObject.quote(url) + ";if(location.pathname+location.search!==u){location.href=u;}}catch(e){}";
-        for (long atraso : new long[]{400L, 1800L}) {
+
+        final String urlFinal = url;
+        final String callIdFinal = (callId != null) ? callId : "";
+        final String js = "try{" +
+                "var u=" + JSONObject.quote(urlFinal) + ";" +
+                "if(location.pathname+location.search!==u){location.href=u;}" +
+                "if(" + JSONObject.quote(callIdFinal) + "){" +
+                "  window.dispatchEvent(new CustomEvent('sectrum_verificar_interfone', { detail: { call_id: " + JSONObject.quote(callIdFinal) + " } }));" +
+                "}" +
+                "}catch(e){}";
+
+        for (long atraso : new long[]{200L, 800L, 2000L}) {
             new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
                 try {
                     if (getBridge() != null && getBridge().getWebView() != null) {
@@ -123,8 +178,10 @@ public class MainActivity extends BridgeActivity {
     public void onResume() {
         super.onResume();
         estaEmPrimeiroPlano = true;
+        configurarJanelaSobreTelaBloqueio();
         // Se abriu a tela vindo de uma chamada tocando, o próprio modal React assume o som/atendimento
         SectrumAudioSynth.pararToqueInterfone(this);
+        SectrumMessagingService.enviarTokenAoServidor(this, false);
     }
 
     @Override
@@ -155,6 +212,13 @@ public class MainActivity extends BridgeActivity {
                 );
             }
             getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                KeyguardManager km = (KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
+                if (km != null) {
+                    km.requestDismissKeyguard(this, null);
+                }
+            }
         } catch (Exception ignored) {}
     }
 
@@ -215,7 +279,7 @@ public class MainActivity extends BridgeActivity {
 
         @JavascriptInterface
         public String obterVersaoApp() {
-            return "1.3.0-android-native";
+            return "1.3.4-android-native";
         }
 
         @JavascriptInterface
@@ -233,7 +297,7 @@ public class MainActivity extends BridgeActivity {
 
                 if (token != null && !token.isEmpty()) {
                     // Registra este aparelho para receber chamadas e alertas por push FCM
-                    SectrumMessagingService.enviarTokenAoServidor(MainActivity.this, false);
+                    SectrumMessagingService.enviarTokenAoServidor(MainActivity.this, true);
                 }
             } catch (Exception ignored) {}
         }
@@ -241,6 +305,11 @@ public class MainActivity extends BridgeActivity {
         @JavascriptInterface
         public void limparSessaoNativa() {
             try {
+                SharedPreferences prefs = getSharedPreferences(SectrumGuardService.PREFS_NAME, MODE_PRIVATE);
+                prefs.edit()
+                        .remove(SectrumGuardService.KEY_TOKEN)
+                        .remove("usuario_json")
+                        .apply();
                 SectrumAudioSynth.pararSireneEmergencia(MainActivity.this);
                 SectrumAudioSynth.pararToqueInterfone(MainActivity.this);
             } catch (Exception ignored) {}

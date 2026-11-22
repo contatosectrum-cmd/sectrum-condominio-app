@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  UserPlus, Camera, Upload, Pencil, Trash2, PauseCircle, PlayCircle, X, CheckCircle2, AlertCircle, Building2, ShieldCheck, RefreshCw, UsersRound,
+  UserPlus, Camera, Upload, Pencil, Trash2, PauseCircle, PlayCircle, X, CheckCircle2, AlertCircle, Building2, ShieldCheck, RefreshCw, UsersRound, Share2, Smartphone,
 } from 'lucide-react';
 import { api, ErroApi } from '../../lib/api';
 import ValidadorCpf from '../../components/ValidadorCpf';
@@ -12,6 +12,9 @@ interface Dependente {
   cpf: string;
   sem_cpf: boolean;
   telefone: string | null;
+  relacao?: string;
+  tipo_familiar?: 'adulto' | 'menor';
+  tem_acesso_app?: boolean;
   parentesco: string;
   data_nascimento: string;
   observacao: string | null;
@@ -31,7 +34,15 @@ interface InfoResponsavel {
   cpf: string;
 }
 
-const PARENTESCOS = [
+const PARENTESCOS_ADULTO = [
+  'Esposo(a) / Cônjuge',
+  'Companheiro(a)',
+  'Pai / Mãe',
+  'Filho(a) Maior de Idade',
+  'Irmão(ã) / Familiar Adulto',
+];
+
+const PARENTESCOS_MENOR = [
   'Filho(a) Menor de Idade',
   'Enteado(a) Menor de Idade',
   'Neto(a) / Menor sob Guarda',
@@ -95,16 +106,18 @@ function redimensionarImagem(arquivo: File): Promise<string> {
 export default function MoradorDependentes() {
   const [responsavel, setResponsavel] = useState<InfoResponsavel>({ nome: 'Morador', cpf: '' });
   const [unidade, setUnidade] = useState<InfoUnidade | null>(null);
+  const [linkConjuge, setLinkConjuge] = useState<string>('');
   const [lista, setLista] = useState<Dependente[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [msg, setMsg] = useState<{ tipo: 'ok' | 'erro'; texto: string } | null>(null);
   const [versaoFoto, setVersaoFoto] = useState(1);
 
-  // Estado do formulário
+  // Estado do formulário ('adulto' = Cônjuge / Familiar Adulto com App + Facial | 'menor' = Filho/Dependente Menor só Facial)
   const [formAberto, setFormAberto] = useState(false);
+  const [tipoFamiliar, setTipoFamiliar] = useState<'adulto' | 'menor'>('adulto');
   const [editId, setEditId] = useState<number | null>(null);
   const [nome, setNome] = useState('');
-  const [parentesco, setParentesco] = useState(PARENTESCOS[0]);
+  const [parentesco, setParentesco] = useState(PARENTESCOS_ADULTO[0]);
   const [dataNascimento, setDataNascimento] = useState('');
   const [semCpf, setSemCpf] = useState(false);
   const [cpf, setCpf] = useState('');
@@ -137,13 +150,15 @@ export default function MoradorDependentes() {
       const r = await api<{
         responsavel: InfoResponsavel;
         unidade: InfoUnidade;
+        link_conjuge?: string;
         dependentes: Dependente[];
       }>('morador_dependentes');
       setResponsavel(r.responsavel);
       setUnidade(r.unidade);
+      setLinkConjuge(r.link_conjuge || '');
       setLista(r.dependentes);
     } catch (e) {
-      setMsg({ tipo: 'erro', texto: e instanceof ErroApi ? e.message : 'Erro ao carregar filhos/dependentes.' });
+      setMsg({ tipo: 'erro', texto: e instanceof ErroApi ? e.message : 'Erro ao carregar familiares e dependentes.' });
     } finally {
       setCarregando(false);
     }
@@ -247,11 +262,25 @@ export default function MoradorDependentes() {
     }
   };
 
-  const abrirNovo = () => {
+  const alternarModoTipo = (modo: 'adulto' | 'menor') => {
+    setTipoFamiliar(modo);
+    if (modo === 'adulto') {
+      setSemCpf(false);
+      if (!PARENTESCOS_ADULTO.includes(parentesco)) {
+        setParentesco(PARENTESCOS_ADULTO[0]);
+      }
+    } else if (!PARENTESCOS_MENOR.includes(parentesco)) {
+      setParentesco(PARENTESCOS_MENOR[0]);
+    }
+    setAceiteTermo(false);
+  };
+
+  const abrirNovo = (modo: 'adulto' | 'menor' = 'adulto') => {
     pararCamera();
     setEditId(null);
+    setTipoFamiliar(modo);
     setNome('');
-    setParentesco(PARENTESCOS[0]);
+    setParentesco(modo === 'adulto' ? PARENTESCOS_ADULTO[0] : PARENTESCOS_MENOR[0]);
     setDataNascimento('');
     setSemCpf(false);
     setCpf('');
@@ -264,17 +293,37 @@ export default function MoradorDependentes() {
 
   const abrirEdicao = (d: Dependente) => {
     pararCamera();
+    const modo: 'adulto' | 'menor' =
+      d.tipo_familiar === 'adulto' || d.relacao === 'Conjuge' || d.tem_acesso_app || PARENTESCOS_ADULTO.includes(d.parentesco)
+        ? 'adulto'
+        : 'menor';
+    const opcoes = modo === 'adulto' ? PARENTESCOS_ADULTO : PARENTESCOS_MENOR;
     setEditId(d.id);
+    setTipoFamiliar(modo);
     setNome(d.nome);
-    setParentesco(PARENTESCOS.includes(d.parentesco) ? d.parentesco : PARENTESCOS[0]);
+    setParentesco(opcoes.includes(d.parentesco) ? d.parentesco : opcoes[0]);
     setDataNascimento(d.data_nascimento || '');
-    setSemCpf(d.sem_cpf);
+    setSemCpf(modo === 'menor' ? d.sem_cpf : false);
     setCpf(d.sem_cpf ? '' : mascaraCpf(d.cpf || ''));
     setTelefone(mascaraTelefone(d.telefone || ''));
     setFotoBase64('');
     setAceiteTermo(true);
     setFormAberto(true);
     setMsg(null);
+  };
+
+  const compartilharLinkConjuge = async () => {
+    if (!linkConjuge) return;
+    const textoShare = `💍 Olá! Acesse este link oficial para cadastrar sua foto facial e receber seu login próprio do nosso apartamento (${unidade?.bloco_nome ? `${unidade.bloco_nome} - ` : ''}Apto ${unidade?.unidade_num || ''}):\n\n${linkConjuge}`;
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: 'Cadastro de Cônjuge / Familiar', text: textoShare, url: linkConjuge });
+        return;
+      } catch {
+        // segue para WhatsApp / cópia
+      }
+    }
+    window.open(`https://wa.me/?text=${encodeURIComponent(textoShare)}`, '_blank', 'noopener,noreferrer');
   };
 
   const fecharForm = () => {
@@ -288,7 +337,10 @@ export default function MoradorDependentes() {
     if (!aceiteTermo) {
       setMsg({
         tipo: 'erro',
-        texto: 'Você precisa marcar a confirmação do Termo de Responsabilidade Parental antes de salvar.',
+        texto:
+          tipoFamiliar === 'adulto'
+            ? 'Marque a confirmação da Declaração de Coabitação Familiar antes de salvar.'
+            : 'Você precisa marcar a confirmação do Termo de Responsabilidade Parental antes de salvar.',
       });
       return;
     }
@@ -298,11 +350,12 @@ export default function MoradorDependentes() {
       const r = await api<{ mensagem: string }>('morador_dependente_salvar', {
         corpo: {
           id: editId ?? 0,
+          tipo_familiar: tipoFamiliar,
           nome,
           parentesco,
           data_nascimento: dataNascimento,
-          sem_cpf: semCpf,
-          cpf: semCpf ? '' : cpf,
+          sem_cpf: tipoFamiliar === 'menor' ? semCpf : false,
+          cpf: tipoFamiliar === 'menor' && semCpf ? '' : cpf,
           telefone,
           foto_base64: fotoBase64,
           aceite_termo: aceiteTermo,
@@ -342,43 +395,65 @@ export default function MoradorDependentes() {
       setMsg({ tipo: 'ok', texto: r.mensagem });
       await carregar();
     } catch (err) {
-      setMsg({ tipo: 'erro', texto: err instanceof ErroApi ? err.message : 'Erro ao remover dependente.' });
+      setMsg({ tipo: 'erro', texto: err instanceof ErroApi ? err.message : 'Erro ao remover familiar/dependente.' });
     } finally {
       setProcessandoId(null);
     }
   };
 
   if (carregando) {
-    return <div className="p-10 text-center font-bold text-slate-400">Carregando filhos e dependentes...</div>;
+    return <div className="p-10 text-center font-bold text-slate-400">Carregando família e dependentes...</div>;
   }
 
   const rotuloUnidade = `${unidade?.bloco_nome ? `${unidade.bloco_nome} • ` : ''}Unidade ${unidade?.unidade_num || '—'}`;
+  const ehAdulto = tipoFamiliar === 'adulto';
+  const opcoesParentesco = ehAdulto ? PARENTESCOS_ADULTO : PARENTESCOS_MENOR;
 
   return (
     <div className="max-w-[680px] mx-auto p-4 sm:p-5 space-y-5">
       {/* Cabeçalho */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3.5">
-          <div className="w-12 h-12 rounded-xl bg-violet-100 text-violet-600 flex items-center justify-center shrink-0">
-            <UsersRound size={24} />
-          </div>
-          <div>
-            <h2 className="text-lg font-extrabold text-slate-900">Filhos e Dependentes Menores</h2>
-            <p className="text-xs text-slate-500 flex items-center gap-1.5 mt-0.5">
-              <Building2 size={13} className="text-slate-400" />
-              {rotuloUnidade} • Vinculados ao responsável {responsavel.nome}
-            </p>
+      <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5">
+            <div className="w-12 h-12 rounded-xl bg-violet-100 text-violet-600 flex items-center justify-center shrink-0">
+              <UsersRound size={24} />
+            </div>
+            <div>
+              <h2 className="text-lg font-extrabold text-slate-900">Minha Família, Cônjuge e Dependentes</h2>
+              <p className="text-xs text-slate-500 flex items-center gap-1.5 mt-0.5">
+                <Building2 size={13} className="text-slate-400" />
+                {rotuloUnidade} • Titular: {responsavel.nome}
+              </p>
+            </div>
           </div>
         </div>
 
         {!formAberto && (
-          <button
-            type="button"
-            onClick={abrirNovo}
-            className="px-4 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-xs font-extrabold flex items-center gap-1.5 shadow-sm cursor-pointer"
-          >
-            <UserPlus size={16} /> Cadastrar Filho(a)
-          </button>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1 border-t border-slate-100">
+            <button
+              type="button"
+              onClick={() => abrirNovo('adulto')}
+              className="px-4 py-3 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-xs sm:text-sm font-extrabold flex items-center justify-center gap-2 shadow-sm cursor-pointer"
+            >
+              <UserPlus size={16} /> 💍 Cadastrar Cônjuge / Adulto
+            </button>
+            <button
+              type="button"
+              onClick={() => abrirNovo('menor')}
+              className="px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-xs sm:text-sm font-extrabold flex items-center justify-center gap-2 shadow-sm cursor-pointer"
+            >
+              <UserPlus size={16} /> 👶 Cadastrar Filho(a) Menor
+            </button>
+            {linkConjuge && (
+              <button
+                type="button"
+                onClick={compartilharLinkConjuge}
+                className="sm:col-span-2 px-4 py-2.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-extrabold flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Share2 size={15} /> 📲 Enviar Link no WhatsApp para o Cônjuge Preencher no Celular Dele(a)
+              </button>
+            )}
+          </div>
         )}
       </div>
 
@@ -398,12 +473,18 @@ export default function MoradorDependentes() {
         </div>
       )}
 
-      {/* Formulário de Cadastro / Edição com Silhueta Facial + Termo de Responsabilidade Parental */}
+      {/* Formulário de Cadastro / Edição (Cônjuge/Adulto com App + Facial vs Filho Menor só Facial) */}
       {formAberto && (
         <form onSubmit={salvar} className="bg-white rounded-2xl border-2 border-violet-200 p-5 shadow-md space-y-5">
           <div className="flex items-center justify-between border-b border-slate-100 pb-3">
             <h3 className="font-extrabold text-slate-900 text-base">
-              {editId ? '✏️ Editar Filho(a) / Dependente' : '👶 Cadastrar Filho(a) / Dependente Menor'}
+              {editId
+                ? ehAdulto
+                  ? '✏️ Editar Cônjuge / Familiar Adulto'
+                  : '✏️ Editar Filho(a) / Dependente Menor'
+                : ehAdulto
+                  ? '💍 Cadastrar Cônjuge / Familiar Adulto (Com App + Facial)'
+                  : '👶 Cadastrar Filho(a) / Dependente Menor (Só Facial)'}
             </h3>
             <button
               type="button"
@@ -414,16 +495,44 @@ export default function MoradorDependentes() {
             </button>
           </div>
 
+          {/* Seletor rápido de modalidade */}
+          <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-xl">
+            <button
+              type="button"
+              onClick={() => alternarModoTipo('adulto')}
+              className={`py-2 px-3 rounded-lg text-xs font-extrabold transition cursor-pointer ${
+                ehAdulto ? 'bg-white text-violet-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              💍 Cônjuge / Adulto (Com App)
+            </button>
+            <button
+              type="button"
+              onClick={() => alternarModoTipo('menor')}
+              className={`py-2 px-3 rounded-lg text-xs font-extrabold transition cursor-pointer ${
+                !ehAdulto ? 'bg-white text-violet-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              👶 Filho(a) Menor (Só Facial)
+            </button>
+          </div>
+
+          {ehAdulto && (
+            <div className="bg-violet-50 border border-violet-200 rounded-xl px-3.5 py-2.5 text-xs text-violet-900 font-medium leading-relaxed">
+              ✨ <strong>Acesso Individual Completo:</strong> seu cônjuge ou familiar adulto terá <strong>login próprio no aplicativo</strong> (CPF + senha inicial <code>mudar@123</code>), tocará o interfone no celular dele(a) e liberará o reconhecimento facial na hora!
+            </div>
+          )}
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
             <div className="sm:col-span-2">
               <label className="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-1">
-                Nome Completo do Filho(a) *
+                {ehAdulto ? 'Nome Completo do Cônjuge / Familiar *' : 'Nome Completo do Filho(a) *'}
               </label>
               <input
                 required
                 value={nome}
                 onChange={(e) => setNome(e.target.value)}
-                placeholder="Nome completo do filho(a) ou dependente"
+                placeholder={ehAdulto ? 'Nome completo do esposo(a) ou familiar adulto' : 'Nome completo do filho(a) ou dependente'}
                 className="w-full px-3.5 py-2.5 border-2 border-slate-200 rounded-xl text-sm outline-none focus:border-violet-600 bg-slate-50 focus:bg-white"
               />
             </div>
@@ -437,7 +546,7 @@ export default function MoradorDependentes() {
                 onChange={(e) => setParentesco(e.target.value)}
                 className="w-full px-3.5 py-2.5 border-2 border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-violet-600 font-semibold text-slate-800"
               >
-                {PARENTESCOS.map((p) => (
+                {opcoesParentesco.map((p) => (
                   <option key={p} value={p}>
                     {p}
                   </option>
@@ -447,11 +556,11 @@ export default function MoradorDependentes() {
 
             <div>
               <label className="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-1">
-                Data de Nascimento *
+                Data de Nascimento {!ehAdulto && '*'}
               </label>
               <input
                 type="date"
-                required
+                required={!ehAdulto}
                 value={dataNascimento}
                 onChange={(e) => setDataNascimento(e.target.value)}
                 className="w-full px-3.5 py-2.5 border-2 border-slate-200 rounded-xl text-sm outline-none focus:border-violet-600 bg-slate-50 focus:bg-white"
@@ -460,41 +569,43 @@ export default function MoradorDependentes() {
 
             <div>
               <label className="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-1">
-                CPF do Filho(a) {!semCpf && '*'}
+                {ehAdulto ? 'CPF (Login no Aplicativo) *' : `CPF do Filho(a) ${!semCpf ? '*' : ''}`}
               </label>
               <input
-                required={!semCpf}
-                disabled={semCpf}
+                required={ehAdulto || !semCpf}
+                disabled={!ehAdulto && semCpf}
                 value={cpf}
                 onChange={(e) => setCpf(mascaraCpf(e.target.value))}
-                placeholder={semCpf ? 'Matrícula gerada automaticamente' : '000.000.000-00'}
+                placeholder={!ehAdulto && semCpf ? 'Matrícula gerada automaticamente' : '000.000.000-00'}
                 maxLength={14}
                 inputMode="numeric"
                 className="w-full px-3.5 py-2.5 border-2 border-slate-200 rounded-xl text-sm outline-none focus:border-violet-600 bg-slate-50 focus:bg-white disabled:opacity-60"
               />
-              {!semCpf && <ValidadorCpf cpf={cpf} />}
-              <label className="flex items-center gap-2 mt-1.5 text-xs text-slate-600 font-medium cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={semCpf}
-                  onChange={(e) => {
-                    setSemCpf(e.target.checked);
-                    if (e.target.checked) setCpf('');
-                  }}
-                  className="rounded border-slate-300 text-violet-600 focus:ring-violet-500"
-                />
-                <span>Menor ainda não possui CPF próprio</span>
-              </label>
+              {(ehAdulto || !semCpf) && <ValidadorCpf cpf={cpf} />}
+              {!ehAdulto && (
+                <label className="flex items-center gap-2 mt-1.5 text-xs text-slate-600 font-medium cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={semCpf}
+                    onChange={(e) => {
+                      setSemCpf(e.target.checked);
+                      if (e.target.checked) setCpf('');
+                    }}
+                    className="rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+                  />
+                  <span>Menor ainda não possui CPF próprio</span>
+                </label>
+              )}
             </div>
 
             <div>
               <label className="block text-xs font-bold text-slate-600 uppercase tracking-wide mb-1">
-                WhatsApp / Contato dos Pais
+                {ehAdulto ? 'WhatsApp Dele(a) (Envia Login Automaticamente)' : 'WhatsApp / Contato dos Pais'}
               </label>
               <input
                 value={telefone}
                 onChange={(e) => setTelefone(mascaraTelefone(e.target.value))}
-                placeholder="(00) 00000-0000"
+                placeholder="(98) 98888-8888"
                 maxLength={15}
                 className="w-full px-3.5 py-2.5 border-2 border-slate-200 rounded-xl text-sm outline-none focus:border-violet-600 bg-slate-50 focus:bg-white"
               />
@@ -507,7 +618,9 @@ export default function MoradorDependentes() {
               📷 Foto Facial (Reconhecimento na Portaria e Bloco)
             </div>
             <p className="text-xs text-slate-500 mb-3.5">
-              Posicione o rosto do seu filho(a) dentro da marcação oval tracejada em local bem iluminado, sem boné ou óculos escuros.
+              {ehAdulto
+                ? 'Posicione o rosto do cônjuge/familiar dentro da marcação oval tracejada (ou escolha uma selfie clara da galeria), sem boné ou óculos escuros.'
+                : 'Posicione o rosto do seu filho(a) dentro da marcação oval tracejada em local bem iluminado, sem boné ou óculos escuros.'}
             </p>
 
             {/* Visor da câmera com o desenho oval tracejado do rosto (igual ao link de pré-cadastro) */}
@@ -622,45 +735,76 @@ export default function MoradorDependentes() {
             </div>
           </div>
 
-          {/* Termo de Responsabilidade e Autorização Parental */}
-          <div className="bg-amber-50/90 border-2 border-amber-300 rounded-2xl p-4 space-y-3">
-            <div className="flex items-center gap-2 text-amber-900 font-extrabold text-xs sm:text-sm uppercase tracking-wide">
-              <ShieldCheck size={19} className="text-amber-700 shrink-0" />
-              <span>Termo de Responsabilidade e Autorização Parental</span>
+          {/* Declaração de Coabitação Familiar (Cônjuge/Adulto) OU Termo de Responsabilidade Parental (Menor) */}
+          {ehAdulto ? (
+            <div className="bg-violet-50/80 border-2 border-violet-200 rounded-2xl p-4 space-y-3">
+              <div className="flex items-center gap-2 text-violet-950 font-extrabold text-xs sm:text-sm uppercase tracking-wide">
+                <ShieldCheck size={19} className="text-violet-700 shrink-0" />
+                <span>Declaração de Coabitação e Vínculo Familiar</span>
+              </div>
+              <div className="text-xs text-slate-700 leading-relaxed bg-white border border-violet-200 rounded-xl p-3.5 space-y-1.5">
+                <p>
+                  Eu, <strong className="text-slate-900">{responsavel.nome}</strong>
+                  {responsavel.cpf ? ` (CPF ${mascaraCpf(responsavel.cpf)})` : ''}, morador(a) responsável pela unidade{' '}
+                  <strong className="text-slate-900">{rotuloUnidade}</strong>, declaro que{' '}
+                  <strong className="text-violet-700">{nome.trim() || '[Nome do Cônjuge / Familiar]'}</strong> reside comigo
+                  neste apartamento na qualidade de <strong>{parentesco}</strong>, autorizando a ativação de seu reconhecimento
+                  facial e acesso individual ao aplicativo e interfone da unidade.
+                </p>
+              </div>
+              <label className="flex items-start gap-3 pt-1 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  required
+                  checked={aceiteTermo}
+                  onChange={(e) => setAceiteTermo(e.target.checked)}
+                  className="mt-0.5 w-5 h-5 rounded border-violet-400 text-violet-600 focus:ring-violet-500 shrink-0 cursor-pointer"
+                />
+                <span className="text-xs sm:text-sm font-extrabold text-violet-950 leading-snug">
+                  Confirmo a veracidade dos dados acima e autorizo o acesso residencial vinculado ao meu apartamento.
+                </span>
+              </label>
             </div>
-            <div className="text-xs text-slate-700 leading-relaxed bg-white/90 border border-amber-200 rounded-xl p-3.5 space-y-1.5">
-              <p>
-                Eu, <strong className="text-slate-900">{responsavel.nome}</strong>
-                {responsavel.cpf ? ` (CPF ${mascaraCpf(responsavel.cpf)})` : ''}, morador(a) responsável pelo apartamento{' '}
-                <strong className="text-slate-900">{rotuloUnidade}</strong>, declaro para todos os fins de direito que sou{' '}
-                <strong className="text-slate-900">pai, mãe ou responsável legal</strong> pelo(a) menor{' '}
-                <strong className="text-violet-700">{nome.trim() || '[Nome do Filho(a)]'}</strong> e, por meio deste ato:
-              </p>
-              <p>
-                <strong>1. Autorizo expressamente</strong> o cadastro e a coleta de sua biometria facial exclusivamente para
-                identificação e liberação de acesso nos terminais faciais da portaria e do nosso bloco (conforme Art. 14 da
-                LGPD — Lei nº 13.709/2018 e Estatuto da Criança e do Adolescente);
-              </p>
-              <p>
-                <strong>2. Assumo integral responsabilidade</strong> civil e condominial pela veracidade dos dados informados,
-                pela autorização de entrada/saída e pelos atos praticados pelo(a) menor nas dependências do condomínio.
-              </p>
-            </div>
+          ) : (
+            <div className="bg-amber-50/90 border-2 border-amber-300 rounded-2xl p-4 space-y-3">
+              <div className="flex items-center gap-2 text-amber-900 font-extrabold text-xs sm:text-sm uppercase tracking-wide">
+                <ShieldCheck size={19} className="text-amber-700 shrink-0" />
+                <span>Termo de Responsabilidade e Autorização Parental</span>
+              </div>
+              <div className="text-xs text-slate-700 leading-relaxed bg-white/90 border border-amber-200 rounded-xl p-3.5 space-y-1.5">
+                <p>
+                  Eu, <strong className="text-slate-900">{responsavel.nome}</strong>
+                  {responsavel.cpf ? ` (CPF ${mascaraCpf(responsavel.cpf)})` : ''}, morador(a) responsável pelo apartamento{' '}
+                  <strong className="text-slate-900">{rotuloUnidade}</strong>, declaro para todos os fins de direito que sou{' '}
+                  <strong className="text-slate-900">pai, mãe ou responsável legal</strong> pelo(a) menor{' '}
+                  <strong className="text-violet-700">{nome.trim() || '[Nome do Filho(a)]'}</strong> e, por meio deste ato:
+                </p>
+                <p>
+                  <strong>1. Autorizo expressamente</strong> o cadastro e a coleta de sua biometria facial exclusivamente para
+                  identificação e liberação de acesso nos terminais faciais da portaria e do nosso bloco (conforme Art. 14 da
+                  LGPD — Lei nº 13.709/2018 e Estatuto da Criança e do Adolescente);
+                </p>
+                <p>
+                  <strong>2. Assumo integral responsabilidade</strong> civil e condominial pela veracidade dos dados informados,
+                  pela autorização de entrada/saída e pelos atos praticados pelo(a) menor nas dependências do condomínio.
+                </p>
+              </div>
 
-            <label className="flex items-start gap-3 pt-1 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                required
-                checked={aceiteTermo}
-                onChange={(e) => setAceiteTermo(e.target.checked)}
-                className="mt-0.5 w-5 h-5 rounded border-amber-400 text-violet-600 focus:ring-violet-500 shrink-0 cursor-pointer"
-              />
-              <span className="text-xs sm:text-sm font-extrabold text-amber-950 leading-snug">
-                Confirmo que sou o pai/mãe ou responsável legal, li e concordo com o Termo de Responsabilidade acima e
-                autorizo este cadastro vinculado ao meu apartamento.
-              </span>
-            </label>
-          </div>
+              <label className="flex items-start gap-3 pt-1 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  required
+                  checked={aceiteTermo}
+                  onChange={(e) => setAceiteTermo(e.target.checked)}
+                  className="mt-0.5 w-5 h-5 rounded border-amber-400 text-violet-600 focus:ring-violet-500 shrink-0 cursor-pointer"
+                />
+                <span className="text-xs sm:text-sm font-extrabold text-amber-950 leading-snug">
+                  Confirmo que sou o pai/mãe ou responsável legal, li e concordo com o Termo de Responsabilidade acima e
+                  autorizo este cadastro vinculado ao meu apartamento.
+                </span>
+              </label>
+            </div>
+          )}
 
           <div className="flex justify-end gap-2.5 pt-1">
             <button
@@ -675,22 +819,21 @@ export default function MoradorDependentes() {
               disabled={salvando || !aceiteTermo}
               className="px-5 py-3 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-xs sm:text-sm font-extrabold shadow-md disabled:opacity-50 cursor-pointer"
             >
-              {salvando ? 'Salvando e sincronizando...' : '🛡️ Confirmar Responsabilidade e Salvar'}
+              {salvando ? 'Salvando e sincronizando...' : ehAdulto ? '💍 Liberar Acesso e Facial' : '🛡️ Confirmar Responsabilidade e Salvar'}
             </button>
           </div>
         </form>
       )}
 
-      {/* Lista de Filhos / Dependentes Cadastrados */}
+      {/* Lista de Familiares / Dependentes Cadastrados */}
       {lista.length === 0 ? (
         <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center space-y-2">
           <div className="text-3xl">👨‍👩‍👧‍👦</div>
           <div className="text-base font-extrabold text-slate-800">
-            Nenhum filho(a) ou dependente cadastrado no seu apartamento
+            Nenhum familiar ou dependente cadastrado no seu apartamento
           </div>
           <p className="text-xs text-slate-500 max-w-md mx-auto">
-            Toque em <strong>Cadastrar Filho(a)</strong> acima para registrar seus filhos menores de idade com foto facial e
-            Termo de Responsabilidade vinculado ao seu cadastro.
+            Use os botões acima para cadastrar seu <strong>Cônjuge / Familiar Adulto</strong> (com acesso próprio ao aplicativo e interfone) ou <strong>Filhos Menores</strong> (reconhecimento facial).
           </p>
         </div>
       ) : (
@@ -717,6 +860,11 @@ export default function MoradorDependentes() {
                       <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200">
                         {d.parentesco}
                       </span>
+                      {d.tem_acesso_app && (
+                        <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-sky-100 text-sky-800 flex items-center gap-1">
+                          <Smartphone size={11} /> App + Interfone
+                        </span>
+                      )}
                       {d.ativo ? (
                         <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
                           ● Facial Ativo
@@ -740,7 +888,7 @@ export default function MoradorDependentes() {
                       <div className="text-[11px] text-emerald-700 font-semibold mt-1 flex items-center gap-1">
                         <ShieldCheck size={13} className="shrink-0" />
                         <span className="truncate" title={d.observacao}>
-                          Autorizado pelo responsável ({responsavel.nome})
+                          Vinculado à unidade por {responsavel.nome}
                         </span>
                       </div>
                     )}

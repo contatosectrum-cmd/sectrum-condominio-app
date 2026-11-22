@@ -21,7 +21,9 @@ export async function entrar(email: string, senha: string): Promise<RespostaSess
 }
 
 export function sair() {
-  encerrarSessao();
+  api('salvar_fcm_token', { corpo: { subscription: null, fcm_token: '' } }).catch(() => undefined);
+  api('remover_voip_token', { corpo: {} }).catch(() => undefined);
+  encerrarSessao(true);
   window.location.assign('/login');
 }
 

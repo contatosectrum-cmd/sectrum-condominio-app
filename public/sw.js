@@ -1,5 +1,5 @@
-// Sectrum Gestão — Service Worker (PWA React + Web Push Nativo iOS/Android p/ Interfone, Emergências e Encomendas)
-const CACHE_NAME = 'sectrum-react-v15';
+// Sectrum Gestão — Service Worker Unificado (PWA React + Web Push Nativo iOS/Android p/ Interfone, Emergências e Encomendas)
+const CACHE_NAME = 'sectrum-react-v18';
 const PRECACHE = ['/manifest.json', '/icon-192.png', '/icon-512.png'];
 
 self.addEventListener('push', function (event) {
@@ -45,7 +45,9 @@ self.addEventListener('push', function (event) {
     String(payload.title || '').includes('EMERGENCIA');
   const ehInterfone =
     !ehEmergencia &&
-    (data.tipo === 'interfone' || String(payload.title || '').includes('Interfone'));
+    (data.tipo === 'interfone' ||
+      data.tipo === 'interfone_transbordo' ||
+      String(payload.title || '').includes('Interfone'));
   const ehUrgente = ehEmergencia || ehInterfone;
 
   const titulo =
@@ -102,9 +104,6 @@ self.addEventListener('push', function (event) {
 
   event.waitUntil(
     (async function () {
-      // Quando furar_nao_perturbe está ativo, substitui a notificação anterior por uma nova tag de pulso
-      // para forçar o sistema operacional (Android/iOS) a tocar o som em TODOS os pulsos e acionar o bypass
-      // nativo de "Chamadas/Alertas Repetidos" do modo Não Perturbe.
       if (furarNaoPerturbe && pulsoNum !== '1') {
         try {
           const antigas = await self.registration.getNotifications();
@@ -169,15 +168,8 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then(async (keys) => {
-      const tinhaAnterior = keys.some((k) => k !== CACHE_NAME);
       await Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)));
       await self.clients.claim();
-      if (tinhaAnterior) {
-        const janelas = await self.clients.matchAll({ type: 'window' });
-        for (const c of janelas) {
-          try { c.navigate(c.url); } catch {}
-        }
-      }
     })
   );
 });

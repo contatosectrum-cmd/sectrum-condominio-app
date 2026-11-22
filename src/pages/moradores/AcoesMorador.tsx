@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { X, Save, Check, UserPlus, Pencil, RefreshCw } from 'lucide-react';
+import { X, Save, Check, UserPlus, Pencil, RefreshCw, FolderOpen, FileText } from 'lucide-react';
 import { SENHA_PADRAO } from '../../lib/constantes';
 import { api, ErroApi } from '../../lib/api';
 import ValidadorCpf from '../../components/ValidadorCpf';
 import type { Morador } from '../Moradores';
+import type { DocumentoCadastro } from '../../components/ModalDocumentosCadastro';
 
 // Acoes do modulo de moradores - paridade com os formularios/modais de views/consulta_pessoas.php:
 // aba "Cadastrar Novo", modal-edicao, modal-bloqueio, modal-exclusao, modal-restauracao,
@@ -15,6 +16,7 @@ export interface Unidade {
   numero: string;
   bloco_id: number | null;
   bloco_nome: string | null;
+  grupo_acesso_id?: number | null;
   ramal?: string | null;
   ramal_custom?: string | null;
   ramal_automatico?: string | null;
@@ -22,15 +24,26 @@ export interface Unidade {
 }
 export interface Controlador { id: number; nome: string; tipo_acesso: string | null; bloco_id: number | null }
 export interface Grupo { id: number; nome: string; terminais_acesso: string | null }
-export interface CondominioInfo { id: number; nome: string; tipo_portaria: string; portaria_autonoma: number; permite_temporada?: number }
+export interface CondominioInfo {
+  id: number;
+  nome: string;
+  tipo_portaria: string;
+  portaria_autonoma: number;
+  permite_temporada?: number;
+  modulo_emergencia?: number;
+  emergencia_somente_administracao?: number;
+}
 export interface Apoio { blocos: Bloco[]; unidades: Unidade[]; controladores: Controlador[]; grupos_acesso: Grupo[]; condominio?: CondominioInfo }
 export interface Aviso { tipo: 'ok' | 'aviso' | 'erro'; mensagem: string }
 interface RespostaAcao { tipo?: 'ok' | 'aviso'; mensagem: string }
 
 const RELACOES = [
-  { valor: 'Titular', rotulo: 'Proprietário / Titular' },
-  { valor: 'Inquilino', rotulo: 'Inquilino' },
-  { valor: 'Dependente', rotulo: 'Dependente / Familiar' },
+  { valor: 'Titular', rotulo: 'Proprietário(a) / Titular' },
+  { valor: 'Conjuge', rotulo: 'Cônjuge / Esposo(a)' },
+  { valor: 'Inquilino', rotulo: 'Inquilino(a)' },
+  { valor: 'Sindico', rotulo: 'Síndico(a) / Administração' },
+  { valor: 'Subsindico', rotulo: 'Subsíndico(a) / Administração' },
+  { valor: 'Dependente', rotulo: 'Filho(a) / Dependente' },
   { valor: 'Funcionario', rotulo: 'Funcionário da Unidade' },
 ];
 
@@ -238,29 +251,173 @@ function calcularRamalAutomaticoCliente(u: Unidade | null): string {
   return apto2;
 }
 
-function SelectUnidade({ apoio, valor, onChange, vazio }: { apoio: Apoio; valor: string; onChange: (v: string) => void; vazio: string }) {
+function SelectUnidade({
+  apoio,
+  valor,
+  onChange,
+  vazio,
+  modoNovaUnidade,
+  setModoNovaUnidade,
+  blocoIdNova,
+  setBlocoIdNova,
+  novoBlocoNome,
+  setNovoBlocoNome,
+  novaUnidadeNumero,
+  setNovaUnidadeNumero,
+}: {
+  apoio: Apoio;
+  valor: string;
+  onChange: (v: string) => void;
+  vazio: string;
+  modoNovaUnidade: boolean;
+  setModoNovaUnidade: (v: boolean) => void;
+  blocoIdNova: string;
+  setBlocoIdNova: (v: string) => void;
+  novoBlocoNome: string;
+  setNovoBlocoNome: (v: string) => void;
+  novaUnidadeNumero: string;
+  setNovaUnidadeNumero: (v: string) => void;
+}) {
   return (
-    <select required value={valor} onChange={(e) => onChange(e.target.value)} className={entrada}>
-      <option value="">{vazio}</option>
-      {apoio.unidades.map((u) => {
-        const ramalExib = u.ramal_efetivo || calcularRamalAutomaticoCliente(u);
-        return (
-          <option key={u.id} value={u.id}>
-            {u.bloco_nome ?? 'Sem Bloco'} — Unid: {u.numero}{ramalExib ? ` (📞 Ramal: ${ramalExib})` : ''}
-          </option>
-        );
-      })}
-    </select>
+    <div className="space-y-2">
+      {!modoNovaUnidade ? (
+        <div className="space-y-1.5">
+          <select
+            required={!modoNovaUnidade}
+            value={valor}
+            onChange={(e) => {
+              if (e.target.value === '__NOVA__') {
+                setModoNovaUnidade(true);
+                if (!blocoIdNova && apoio.blocos.length > 0) {
+                  setBlocoIdNova(String(apoio.blocos[0].id));
+                }
+              } else {
+                onChange(e.target.value);
+              }
+            }}
+            className={entrada}
+          >
+            <option value="">{vazio}</option>
+            <option value="__NOVA__" className="font-bold text-indigo-700">
+              ➕ Cadastrar / Digitar outra Casa ou Apartamento...
+            </option>
+            {apoio.unidades.map((u) => {
+              const ramalExib = u.ramal_efetivo || calcularRamalAutomaticoCliente(u);
+              return (
+                <option key={u.id} value={u.id}>
+                  {u.bloco_nome ?? 'Sem Bloco'} — Unid: {u.numero}{ramalExib ? ` (📞 Ramal: ${ramalExib})` : ''}
+                </option>
+              );
+            })}
+          </select>
+          <button
+            type="button"
+            onClick={() => {
+              setModoNovaUnidade(true);
+              const unAtual = apoio.unidades.find((u) => String(u.id) === valor);
+              if (unAtual?.bloco_id) {
+                setBlocoIdNova(String(unAtual.bloco_id));
+              } else if (!blocoIdNova && apoio.blocos.length > 0) {
+                setBlocoIdNova(String(apoio.blocos[0].id));
+              }
+            }}
+            className="inline-flex items-center gap-1 text-xs font-extrabold text-indigo-700 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-2.5 py-1 rounded-lg transition cursor-pointer"
+          >
+            ➕ Casa ou Apto não está na lista? Clique para cadastrar/digitar a unidade correta
+          </button>
+        </div>
+      ) : (
+        <div className="p-3.5 rounded-xl bg-indigo-50/80 border-2 border-indigo-300 space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-extrabold uppercase tracking-wide text-indigo-950">
+              🏠 Cadastrar / Informar Unidade Correta (Casa ou Apto)
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setModoNovaUnidade(false);
+                setNovaUnidadeNumero('');
+                setNovoBlocoNome('');
+              }}
+              className="text-xs font-bold text-slate-600 hover:text-slate-900 bg-white px-2.5 py-1 rounded-lg border border-slate-300 cursor-pointer"
+            >
+              ← Voltar para lista existente
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <div>
+              <label className="block text-[0.72rem] font-extrabold text-indigo-950 mb-1">
+                Bloco / Quadra / Rua *
+              </label>
+              <select
+                value={blocoIdNova}
+                onChange={(e) => setBlocoIdNova(e.target.value)}
+                className={entrada}
+              >
+                {apoio.blocos.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.nome}
+                  </option>
+                ))}
+                <option value="__NOVO_BLOCO__">➕ Criar Novo Bloco / Quadra...</option>
+              </select>
+              {blocoIdNova === '__NOVO_BLOCO__' && (
+                <input
+                  type="text"
+                  required
+                  value={novoBlocoNome}
+                  onChange={(e) => setNovoBlocoNome(e.target.value)}
+                  placeholder="Ex: Bloco 1, Quadra B, Casas..."
+                  className={`${entrada} mt-1.5 font-semibold`}
+                />
+              )}
+            </div>
+
+            <div>
+              <label className="block text-[0.72rem] font-extrabold text-indigo-950 mb-1">
+                Nº da Casa ou Apartamento Correto *
+              </label>
+              <input
+                type="text"
+                required={modoNovaUnidade}
+                value={novaUnidadeNumero}
+                onChange={(e) => setNovaUnidadeNumero(e.target.value)}
+                placeholder="Ex: 102, Casa 15, 304..."
+                className={`${entrada} font-extrabold text-indigo-950 !border-indigo-400`}
+              />
+            </div>
+          </div>
+
+          <p className="text-[11px] text-indigo-800 font-medium leading-snug">
+            ✨ Ao salvar, o sistema criará/vinculará automaticamente esta unidade correta ao morador (e removerá a unidade antiga caso tenha sido criada por engano e fique vazia).
+          </p>
+        </div>
+      )}
+    </div>
   );
 }
 
 /**
  * Bloco visual de configuração e exemplo do Ramal do Interfone vinculado ao apartamento do morador.
  */
-function CampoRamalInterfone({ apoio, unidadeId, ramal, setRamal }: {
-  apoio: Apoio; unidadeId: string; ramal: string; setRamal: (v: string) => void;
+function CampoRamalInterfone({
+  apoio,
+  unidadeId,
+  ramal,
+  setRamal,
+  unidadeVirtual,
+}: {
+  apoio: Apoio;
+  unidadeId: string;
+  ramal: string;
+  setRamal: (v: string) => void;
+  unidadeVirtual?: Unidade | null;
 }) {
-  const unidSel = useMemo(() => apoio.unidades.find((u) => String(u.id) === unidadeId) ?? null, [apoio.unidades, unidadeId]);
+  const unidSel = useMemo(
+    () => unidadeVirtual ?? apoio.unidades.find((u) => String(u.id) === unidadeId) ?? null,
+    [apoio.unidades, unidadeId, unidadeVirtual],
+  );
   const ramalAuto = useMemo(() => calcularRamalAutomaticoCliente(unidSel), [unidSel]);
   const ramalEfetivo = (ramal.trim() || ramalAuto || '0101');
   const ehCustomizado = Boolean(unidSel && ramal.trim() !== '' && ramal.trim() !== ramalAuto);
@@ -343,6 +500,10 @@ export function FormNovoMorador({ apoio, onConcluido }: { apoio: Apoio; onConclu
   const [nome, setNome] = useState('');
   const [cpf, setCpf] = useState('');
   const [unidade, setUnidade] = useState('');
+  const [modoNovaUnidade, setModoNovaUnidade] = useState(false);
+  const [blocoIdNova, setBlocoIdNova] = useState(() => (apoio.blocos[0] ? String(apoio.blocos[0].id) : '__NOVO_BLOCO__'));
+  const [novoBlocoNome, setNovoBlocoNome] = useState('');
+  const [novaUnidadeNumero, setNovaUnidadeNumero] = useState('');
   const [ramal, setRamal] = useState('');
   const [relacao, setRelacao] = useState('Titular');
   const [grupoId, setGrupoId] = useState('');
@@ -351,10 +512,30 @@ export function FormNovoMorador({ apoio, onConcluido }: { apoio: Apoio; onConclu
   const [erro, setErro] = useState('');
   const [enviando, setEnviando] = useState(false);
 
+  const unidadeVirtualNovo = useMemo<Unidade | null>(() => {
+    if (!modoNovaUnidade || !novaUnidadeNumero.trim()) return null;
+    const b = apoio.blocos.find((x) => String(x.id) === blocoIdNova);
+    return {
+      id: -1,
+      numero: novaUnidadeNumero.trim(),
+      bloco_id: b ? b.id : null,
+      bloco_nome: blocoIdNova === '__NOVO_BLOCO__' ? (novoBlocoNome.trim() || 'Novo Bloco') : (b?.nome ?? 'Bloco'),
+    };
+  }, [modoNovaUnidade, novaUnidadeNumero, blocoIdNova, novoBlocoNome, apoio.blocos]);
+
+  useEffect(() => {
+    if (unidadeVirtualNovo) {
+      setRamal(calcularRamalAutomaticoCliente(unidadeVirtualNovo));
+    }
+  }, [unidadeVirtualNovo]);
+
   const selecionarUnidadeNovo = (novoId: string) => {
     setUnidade(novoId);
     const u = apoio.unidades.find((x) => String(x.id) === novoId) ?? null;
     setRamal(u ? (u.ramal_efetivo || calcularRamalAutomaticoCliente(u)) : '');
+    if (u?.grupo_acesso_id) {
+      setGrupoId(String(u.grupo_acesso_id));
+    }
   };
 
   const enviar = async (e: React.FormEvent) => {
@@ -362,7 +543,16 @@ export function FormNovoMorador({ apoio, onConcluido }: { apoio: Apoio; onConclu
     setErro('');
     setEnviando(true);
     const r = await executar('morador_novo', {
-      nome, cpf, unidade_id: unidade, relacao, ramal: ramal.trim(), grupo_acesso_id: grupoId, gerar_acesso: gerarAcesso,
+      nome,
+      cpf,
+      unidade_id: modoNovaUnidade ? 0 : unidade,
+      bloco_id: modoNovaUnidade && blocoIdNova !== '__NOVO_BLOCO__' ? Number(blocoIdNova) : 0,
+      novo_bloco_nome: modoNovaUnidade && blocoIdNova === '__NOVO_BLOCO__' ? novoBlocoNome.trim() : '',
+      nova_unidade_numero: modoNovaUnidade ? novaUnidadeNumero.trim() : '',
+      relacao,
+      ramal: ramal.trim(),
+      grupo_acesso_id: grupoId,
+      gerar_acesso: gerarAcesso,
       terminais_permitidos: grupoId ? [] : terminais, // checkboxes desabilitados nao sao enviados (igual ao legado)
     });
     setEnviando(false);
@@ -385,14 +575,30 @@ export function FormNovoMorador({ apoio, onConcluido }: { apoio: Apoio; onConclu
               <input required maxLength={14} value={cpf} onChange={(e) => setCpf(mascaraCpf(e.target.value))} placeholder="000.000.000-00" className={entrada} />
               <ValidadorCpf cpf={cpf} onNomeEncontrado={(nomeSug) => { if (!nome.trim()) setNome(nomeSug); }} />
             </div>
-            <div><label className={rotuloCampo}>Unidade Pertencente *</label><SelectUnidade apoio={apoio} valor={unidade} onChange={selecionarUnidadeNovo} vazio="Selecione o Bloco e Apto..." /></div>
+            <div>
+              <label className={rotuloCampo}>Unidade Pertencente (Casa ou Apartamento) *</label>
+              <SelectUnidade
+                apoio={apoio}
+                valor={unidade}
+                onChange={selecionarUnidadeNovo}
+                vazio="Selecione o Bloco e Apto..."
+                modoNovaUnidade={modoNovaUnidade}
+                setModoNovaUnidade={setModoNovaUnidade}
+                blocoIdNova={blocoIdNova}
+                setBlocoIdNova={setBlocoIdNova}
+                novoBlocoNome={novoBlocoNome}
+                setNovoBlocoNome={setNovoBlocoNome}
+                novaUnidadeNumero={novaUnidadeNumero}
+                setNovaUnidadeNumero={setNovaUnidadeNumero}
+              />
+            </div>
             <div>
               <label className={rotuloCampo}>Relação com o Imóvel</label>
               <select value={relacao} onChange={(e) => setRelacao(e.target.value)} className={entrada}>
                 {RELACOES.map((r) => <option key={r.valor} value={r.valor}>{r.rotulo}</option>)}
               </select>
             </div>
-            <CampoRamalInterfone apoio={apoio} unidadeId={unidade} ramal={ramal} setRamal={setRamal} />
+            <CampoRamalInterfone apoio={apoio} unidadeId={unidade} ramal={ramal} setRamal={setRamal} unidadeVirtual={unidadeVirtualNovo} />
             <CamposAcesso apoio={apoio} unidadeId={unidade} grupoId={grupoId} setGrupoId={setGrupoId} terminais={terminais} setTerminais={setTerminais} />
             <label className="col-span-full bg-slate-50 p-4 rounded-xl border border-slate-200 flex items-start gap-3.5 cursor-pointer">
               <input type="checkbox" checked={gerarAcesso} onChange={(e) => setGerarAcesso(e.target.checked)} className="w-6 h-6 mt-0.5 accent-blue-600 shrink-0" />
@@ -413,13 +619,33 @@ export function FormNovoMorador({ apoio, onConcluido }: { apoio: Apoio; onConclu
   );
 }
 
-/** modal-edicao (acao_form = editar_morador), incluindo veiculos/vagas e reset de senha. */
-export function ModalEditar({ m, apoio, onFechar, onConcluido }: { m: Morador; apoio: Apoio; onFechar: () => void; onConcluido: (a: Aviso) => void }) {
+/** modal-edicao (acao_form = editar_morador), incluindo contratos/documentos, veiculos/vagas e reset de senha. */
+export function ModalEditar({
+  m,
+  apoio,
+  onFechar,
+  onConcluido,
+  onAbrirDocumentos,
+  onVerDocumento,
+}: {
+  m: Morador;
+  apoio: Apoio;
+  onFechar: () => void;
+  onConcluido: (a: Aviso) => void;
+  onAbrirDocumentos?: () => void;
+  onVerDocumento?: (doc: DocumentoCadastro) => void;
+}) {
   const [nome, setNome] = useState(m.nome);
   const [cpf, setCpf] = useState(mascaraCpf(m.cpf ?? ''));
   const [telefone, setTelefone] = useState(m.telefone ?? '');
   const [unidade, setUnidade] = useState(m.unidade_id ? String(m.unidade_id) : '');
   const unidInicial = apoio.unidades.find((u) => u.id === m.unidade_id) ?? null;
+  const [modoNovaUnidade, setModoNovaUnidade] = useState(false);
+  const [blocoIdNova, setBlocoIdNova] = useState(
+    m.bloco_id ? String(m.bloco_id) : (apoio.blocos[0] ? String(apoio.blocos[0].id) : '__NOVO_BLOCO__')
+  );
+  const [novoBlocoNome, setNovoBlocoNome] = useState('');
+  const [novaUnidadeNumero, setNovaUnidadeNumero] = useState('');
   const [ramal, setRamal] = useState(
     m.ramal || unidInicial?.ramal_efetivo || calcularRamalAutomaticoCliente(unidInicial)
   );
@@ -432,6 +658,23 @@ export function ModalEditar({ m, apoio, onFechar, onConcluido }: { m: Morador; a
   const [resetSenha, setResetSenha] = useState(false);
   const [erro, setErro] = useState('');
   const [enviando, setEnviando] = useState(false);
+
+  const unidadeVirtualEdicao = useMemo<Unidade | null>(() => {
+    if (!modoNovaUnidade || !novaUnidadeNumero.trim()) return null;
+    const b = apoio.blocos.find((x) => String(x.id) === blocoIdNova);
+    return {
+      id: -1,
+      numero: novaUnidadeNumero.trim(),
+      bloco_id: b ? b.id : null,
+      bloco_nome: blocoIdNova === '__NOVO_BLOCO__' ? (novoBlocoNome.trim() || 'Novo Bloco') : (b?.nome ?? 'Bloco'),
+    };
+  }, [modoNovaUnidade, novaUnidadeNumero, blocoIdNova, novoBlocoNome, apoio.blocos]);
+
+  useEffect(() => {
+    if (unidadeVirtualEdicao) {
+      setRamal(calcularRamalAutomaticoCliente(unidadeVirtualEdicao));
+    }
+  }, [unidadeVirtualEdicao]);
 
   const selecionarUnidadeEdicao = (novoId: string) => {
     setUnidade(novoId);
@@ -449,9 +692,22 @@ export function ModalEditar({ m, apoio, onFechar, onConcluido }: { m: Morador; a
     setErro('');
     setEnviando(true);
     const r = await executar('morador_editar', {
-      id: m.id, nome, cpf, telefone, unidade_id: unidade, relacao, ramal: ramal.trim(), grupo_acesso_id: grupoId,
-      terminais_permitidos: grupoId ? [] : terminais, veiculos,
-      novo_veiculo_placa: novaPlaca, novo_veiculo_vaga: novaVaga, reset_senha: resetSenha,
+      id: m.id,
+      nome,
+      cpf,
+      telefone,
+      unidade_id: modoNovaUnidade ? 0 : unidade,
+      bloco_id: modoNovaUnidade && blocoIdNova !== '__NOVO_BLOCO__' ? Number(blocoIdNova) : 0,
+      novo_bloco_nome: modoNovaUnidade && blocoIdNova === '__NOVO_BLOCO__' ? novoBlocoNome.trim() : '',
+      nova_unidade_numero: modoNovaUnidade ? novaUnidadeNumero.trim() : '',
+      relacao,
+      ramal: ramal.trim(),
+      grupo_acesso_id: grupoId,
+      terminais_permitidos: grupoId ? [] : terminais,
+      veiculos,
+      novo_veiculo_placa: novaPlaca,
+      novo_veiculo_vaga: novaVaga,
+      reset_senha: resetSenha,
     });
     setEnviando(false);
     if (r.tipo === 'erro') setErro(r.mensagem);
@@ -505,14 +761,30 @@ export function ModalEditar({ m, apoio, onFechar, onConcluido }: { m: Morador; a
             <ValidadorCpf cpf={cpf} />
           </div>
           <div><label className={rotuloCampo}>Telefone</label><input value={telefone} onChange={(e) => setTelefone(mascaraTelefone(e.target.value))} className={`${entrada} font-semibold`} /></div>
-          <div><label className={rotuloCampo}>Unidade *</label><SelectUnidade apoio={apoio} valor={unidade} onChange={selecionarUnidadeEdicao} vazio="Selecione..." /></div>
+          <div>
+            <label className={rotuloCampo}>Unidade (Casa ou Apartamento) *</label>
+            <SelectUnidade
+              apoio={apoio}
+              valor={unidade}
+              onChange={selecionarUnidadeEdicao}
+              vazio="Selecione..."
+              modoNovaUnidade={modoNovaUnidade}
+              setModoNovaUnidade={setModoNovaUnidade}
+              blocoIdNova={blocoIdNova}
+              setBlocoIdNova={setBlocoIdNova}
+              novoBlocoNome={novoBlocoNome}
+              setNovoBlocoNome={setNovoBlocoNome}
+              novaUnidadeNumero={novaUnidadeNumero}
+              setNovaUnidadeNumero={setNovaUnidadeNumero}
+            />
+          </div>
           <div>
             <label className={rotuloCampo}>Relação</label>
             <select value={relacao} onChange={(e) => setRelacao(e.target.value)} className={entrada}>
               {RELACOES.map((r) => <option key={r.valor} value={r.valor}>{r.rotulo}</option>)}
             </select>
           </div>
-          <CampoRamalInterfone apoio={apoio} unidadeId={unidade} ramal={ramal} setRamal={setRamal} />
+          <CampoRamalInterfone apoio={apoio} unidadeId={unidade} ramal={ramal} setRamal={setRamal} unidadeVirtual={unidadeVirtualEdicao} />
           <CamposAcesso apoio={apoio} unidadeId={unidade} grupoId={grupoId} setGrupoId={setGrupoId} terminais={terminais} setTerminais={setTerminais} />
 
           {(m.vinculados?.length ?? 0) > 0 && (
@@ -573,6 +845,60 @@ export function ModalEditar({ m, apoio, onFechar, onConcluido }: { m: Morador; a
               </div>
             </div>
           )}
+
+          <div className="col-span-full mt-2 bg-blue-50/70 border border-blue-200 rounded-xl p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2.5 mb-2">
+              <span className="text-[0.98rem] font-extrabold text-blue-950 flex items-center gap-2">
+                <FolderOpen size={18} className="text-blue-600" />
+                Contratos de Locação, Autorizações e Documentos ({m.documentos?.length ?? 0})
+              </span>
+              {onAbrirDocumentos && (
+                <button
+                  type="button"
+                  onClick={onAbrirDocumentos}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-extrabold shadow-xs cursor-pointer"
+                >
+                  <FolderOpen size={14} /> Gerenciar / Anexar Documento
+                </button>
+              )}
+            </div>
+
+            {(m.documentos?.length ?? 0) === 0 ? (
+              <p className="text-xs text-slate-600">
+                {relacao === 'Inquilino'
+                  ? '⚠️ Nenhum Contrato de Locação ou Autorização do Proprietário anexado ainda nesta ficha. Clique em "Gerenciar / Anexar Documento" para incluir.'
+                  : 'Nenhum documento arquivado ainda para este morador/unidade.'}
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-2 mt-2">
+                {m.documentos!.map((doc) => {
+                  const vencido = doc.validade_contrato && new Date(`${doc.validade_contrato}T23:59:59`).getTime() < Date.now();
+                  return (
+                    <button
+                      key={doc.id}
+                      type="button"
+                      onClick={() => (onVerDocumento ? onVerDocumento(doc) : onAbrirDocumentos?.())}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-bold cursor-pointer transition ${
+                        vencido
+                          ? 'bg-rose-50 text-rose-800 border-rose-300 hover:bg-rose-100'
+                          : 'bg-white text-blue-900 border-blue-200 hover:bg-blue-100/70 shadow-2xs'
+                      }`}
+                      title={`${doc.titulo} — Clique para visualizar`}
+                    >
+                      <FileText size={13} className="text-blue-600 shrink-0" />
+                      <span>{doc.categoria_rotulo}</span>
+                      {doc.validade_contrato && (
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-extrabold ${vencido ? 'bg-rose-200 text-rose-900' : 'bg-slate-100 text-slate-700'}`}>
+                          {vencido ? 'Vencido: ' : 'Até '}
+                          {doc.validade_contrato.split('-').reverse().join('/')}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
 
           <div className="col-span-full mt-2">
             <label className="text-[1.05rem] font-extrabold text-slate-900 mb-2 flex items-center gap-2">🚗 Veículos e Vagas de Garagem</label>

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Monitor, Users, Clock, FileText, Smartphone, ScanFace, UserCog, Activity, AlertTriangle } from 'lucide-react';
 import { api, ErroApi } from '../lib/api';
 import { useSessao } from '../lib/useSessao';
+import BannerAlertaPetsPerdidos from '../components/BannerAlertaPetsPerdidos';
 
 // Paridade com src/views/dashboard.php: 4 contadores, grafico 7 dias (com condominio) e ultimos 10 acessos.
 interface Acesso {
@@ -55,15 +56,21 @@ export default function Dashboard() {
   const [msgCfg, setMsgCfg] = useState('');
 
   useEffect(() => {
+    let cancelado = false;
     setDados(null);
+    setCondConfig(null);
     setErro('');
     api<DadosDashboard>('dashboard')
-      .then(setDados)
-      .catch((e) => setErro(e instanceof ErroApi ? e.message : 'Erro ao carregar o painel.'));
+      .then((d) => {
+        if (!cancelado) setDados(d);
+      })
+      .catch((e) => {
+        if (!cancelado) setErro(e instanceof ErroApi ? e.message : 'Erro ao carregar o painel.');
+      });
     if (usuario?.condominio_id) {
       api<{ condominio?: { portaria_autonoma: number; permite_temporada?: number } }>('moradores_apoio')
         .then((r) => {
-          if (r.condominio) {
+          if (!cancelado && r.condominio) {
             setCondConfig({
               portaria_autonoma: Number(r.condominio.portaria_autonoma ?? 0),
               permite_temporada: Number(r.condominio.permite_temporada ?? 1),
@@ -72,6 +79,9 @@ export default function Dashboard() {
         })
         .catch(() => {});
     }
+    return () => {
+      cancelado = true;
+    };
   }, [usuario?.condominio_id]);
 
   const alternarTemporada = async (permitir: number) => {
@@ -150,6 +160,9 @@ export default function Dashboard() {
       )}
 
       {erro && <div className="bg-rose-50 border-l-4 border-rose-500 text-rose-800 px-4 py-3 rounded-lg text-sm">⚠ {erro}</div>}
+
+      {/* BANNER DE ALERTA ATIVO DE PET PERDIDO NO CONDOMÍNIO */}
+      {!dados?.visao_geral && <BannerAlertaPetsPerdidos />}
 
       {/* ALERTA DE MORADORES IMPORTADOS DO LEITOR SEM CPF */}
       {(dados?.moradores_sem_cpf ?? 0) > 0 && !dados?.visao_geral && (

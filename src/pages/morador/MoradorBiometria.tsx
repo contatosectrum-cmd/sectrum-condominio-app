@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Camera, Shield, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { api, ErroApi } from '../../lib/api';
+import { ehAppNativo, temBiometriaNativaDisponivel } from '../../lib/nativo';
 import { cadastrarBiometria, prepararDesafioCadastro, type OpcoesCadastro } from '../../lib/webauthn';
 import FotoUsuario from '../../components/FotoUsuario';
 
@@ -119,7 +120,8 @@ export default function MoradorBiometria() {
   };
 
   const registrarWebAuthn = async () => {
-    if (!window.PublicKeyCredential) {
+    const usaBioNativa = ehAppNativo() && temBiometriaNativaDisponivel();
+    if (!usaBioNativa && !window.PublicKeyCredential) {
       setBioMsg({
         tipo: 'erro',
         texto: 'Seu navegador não suporta biometria (WebAuthn). Use Chrome, Safari ou Edge modernos.',

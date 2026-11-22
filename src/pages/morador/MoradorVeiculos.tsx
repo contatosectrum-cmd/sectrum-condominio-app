@@ -2,16 +2,14 @@ import { useCallback, useEffect, useState } from 'react';
 import { Car, Lock, X } from 'lucide-react';
 import { api, ErroApi } from '../../lib/api';
 
-// Paridade com src/views/meus_veiculos.php + MeusVeiculosController.php ("Meus Veiculos").
-// Correcoes no backend:
-// - O legado fazia INSERT na coluna inexistente `criado_em` (o cadastro dava erro 500);
-// - O botao "Remover" enviava POST, mas o controller so lia GET ?excluir_veiculo= (nao removia nada).
-
 interface VeiculoMorador {
   id: number;
   placa: string;
   modelo: string;
   cor: string;
+  tipo?: string;
+  responsavel_nome?: string;
+  cargo_funcao?: string | null;
 }
 
 const rot = 'block text-xs font-bold uppercase text-slate-600 mb-1.5';
@@ -19,14 +17,22 @@ const inp = 'w-full px-3.5 py-2.5 rounded-[9px] bg-slate-50 border border-slate-
 
 export default function MoradorVeiculos() {
   const [veiculos, setVeiculos] = useState<VeiculoMorador[]>([]);
-  const [form, setForm] = useState({ placa: '', modelo: '', cor: '' });
+  const [limiteVagas, setLimiteVagas] = useState<number | null>(null);
+  const [vagasOcupadas, setVagasOcupadas] = useState<number>(0);
+  const [form, setForm] = useState({ placa: '', modelo: '', cor: '', tipo: 'Carro' });
   const [ocupado, setOcupado] = useState(false);
   const [msg, setMsg] = useState<{ tipo: 'ok' | 'erro'; texto: string } | null>(null);
 
   const carregar = useCallback(async () => {
     try {
-      const r = await api<{ veiculos: VeiculoMorador[] }>('morador_veiculos');
+      const r = await api<{
+        veiculos: VeiculoMorador[];
+        limite_vagas?: number | null;
+        vagas_ocupadas?: number;
+      }>('morador_veiculos');
       setVeiculos(r.veiculos);
+      setLimiteVagas(r.limite_vagas ?? null);
+      setVagasOcupadas(r.vagas_ocupadas ?? r.veiculos.length);
     } catch (e) {
       setMsg({ tipo: 'erro', texto: e instanceof ErroApi ? e.message : 'Erro ao carregar veículos.' });
     }
@@ -42,7 +48,7 @@ export default function MoradorVeiculos() {
     try {
       const r = await api<{ mensagem: string }>('morador_veiculo_salvar', { corpo: form });
       setMsg({ tipo: 'ok', texto: r.mensagem });
-      setForm({ placa: '', modelo: '', cor: '' });
+      setForm({ placa: '', modelo: '', cor: '', tipo: 'Carro' });
       await carregar();
     } catch (err) {
       setMsg({ tipo: 'erro', texto: err instanceof ErroApi ? err.message : 'Erro ao cadastrar veículo.' });
@@ -82,15 +88,32 @@ export default function MoradorVeiculos() {
 
       {/* Card 1 — Cadastrar Veículo */}
       <div className="bg-white rounded-2xl border border-slate-200 border-t-4 border-t-blue-600 p-6 shadow-sm">
-        <div className="flex items-center gap-2 text-lg font-extrabold text-blue-700 mb-4">
-          <Car size={20} />
-          <span>Cadastrar Veículo</span>
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+          <div className="flex items-center gap-2 text-lg font-extrabold text-blue-700">
+            <Car size={20} />
+            <span>Cadastrar Veículo da Unidade</span>
+          </div>
+          {limiteVagas !== null && (
+            <span className={`text-xs font-extrabold px-3 py-1 rounded-full border ${vagasOcupadas >= limiteVagas ? 'bg-amber-100 text-amber-900 border-amber-300' : 'bg-emerald-100 text-emerald-800 border-emerald-300'}`}>
+              🚗 Vagas da Unidade: {vagasOcupadas} de {limiteVagas} ocupada{limiteVagas === 1 ? '' : 's'}
+            </span>
+          )}
         </div>
 
+        {limiteVagas !== null && vagasOcupadas >= limiteVagas ? (
+          <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 text-sm text-amber-900">
+            <div className="font-extrabold mb-1">⚠️ Limite de Vagas da Unidade Atingido ({vagasOcupadas}/{limiteVagas})</div>
+            <p className="text-xs text-amber-800 leading-relaxed">
+              {limiteVagas <= 0
+                ? 'O cadastro de veículos pelo aplicativo está bloqueado para esta unidade. Procure a administração do condomínio.'
+                : `Sua unidade já possui ${vagasOcupadas} veículo(s) cadastrado(s), atingindo o limite de ${limiteVagas} vaga(s) do condomínio. Para substituir o veículo da vaga, remova primeiro o veículo atual na lista abaixo.`}
+            </p>
+          </div>
+        ) : (
         <form onSubmit={salvar} className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
-              <label className={rot}>Placa *</label>
+              <label className={rot}>Placa (LPR) *</label>
               <input
                 type="text"
                 name="placa"
@@ -121,7 +144,7 @@ export default function MoradorVeiculos() {
                 type="text"
                 name="cor"
                 required
-                placeholder="Ex: Preto"
+                placeholder="Ex: Branco"
                 value={form.cor}
                 onChange={(e) => setForm({ ...form, cor: e.target.value })}
                 className={inp}
@@ -137,17 +160,18 @@ export default function MoradorVeiculos() {
             {ocupado ? '⏳ Aguarde...' : 'Salvar Veículo'}
           </button>
         </form>
+        )}
       </div>
 
       {/* Card 2 — Meus Veículos Autorizados */}
       <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
         <div className="flex items-center gap-2 text-lg font-extrabold text-slate-900 mb-4">
           <Lock size={18} className="text-slate-600" />
-          <span>Meus Veículos Autorizados</span>
+          <span>Veículos Autorizados da Unidade</span>
         </div>
 
         {veiculos.length === 0 ? (
-          <div className="text-center py-8 text-slate-400">Nenhum veículo cadastrado.</div>
+          <div className="text-center py-8 text-slate-400">Nenhum veículo cadastrado nesta unidade.</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -156,6 +180,7 @@ export default function MoradorVeiculos() {
                   <th className="py-3 px-3">Placa</th>
                   <th className="py-3 px-3">Modelo / Marca</th>
                   <th className="py-3 px-3">Cor</th>
+                  <th className="py-3 px-3">Cadastrado por</th>
                   <th className="py-3 px-3 text-right">Ação</th>
                 </tr>
               </thead>
@@ -169,6 +194,9 @@ export default function MoradorVeiculos() {
                     </td>
                     <td className="py-3 px-3 font-bold text-slate-800">{v.modelo}</td>
                     <td className="py-3 px-3 text-slate-600">{v.cor}</td>
+                    <td className="py-3 px-3 text-xs text-slate-600">
+                      {v.responsavel_nome || 'Unidade'}
+                    </td>
                     <td className="py-3 px-3 text-right">
                       <button
                         type="button"

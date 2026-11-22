@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Users, UserPlus, Camera, Upload, Pencil, Trash2, PauseCircle, PlayCircle, X, CheckCircle2, AlertCircle, Building2,
+  Users, UserPlus, Camera, Upload, Pencil, Trash2, PauseCircle, PlayCircle, X, CheckCircle2, AlertCircle, Building2, Briefcase, Clock, Hash,
 } from 'lucide-react';
 import { api, ErroApi } from '../../lib/api';
 import ValidadorCpf from '../../components/ValidadorCpf';
@@ -12,6 +12,9 @@ interface Funcionario {
   cpf: string;
   telefone: string | null;
   funcao: string;
+  cargo_funcao?: string | null;
+  turno_trabalho?: string | null;
+  matricula_cracha?: string | null;
   observacao: string | null;
   ativo: boolean;
   tem_foto: boolean;
@@ -125,7 +128,10 @@ export default function MoradorFuncionarios() {
 
   const carregar = useCallback(async () => {
     try {
-      const r = await api<{ unidade: InfoUnidade; funcionarios: Funcionario[] }>('morador_funcionarios');
+      const r = await api<{
+        unidade: InfoUnidade;
+        funcionarios: Funcionario[];
+      }>('morador_funcionarios');
       setUnidade(r.unidade);
       setLista(r.funcionarios);
     } catch (e) {
@@ -167,7 +173,8 @@ export default function MoradorFuncionarios() {
     setNome(f.nome);
     setCpf(mascaraCpf(f.cpf || ''));
     setTelefone(mascaraTelefone(f.telefone || ''));
-    setFuncao(FUNCOES.includes(f.funcao) ? f.funcao : FUNCOES[0]);
+    const fn = f.cargo_funcao || f.funcao;
+    setFuncao(FUNCOES.includes(fn) ? fn : FUNCOES[0]);
     setFotoBase64('');
     setFormAberto(true);
     setMsg(null);
@@ -310,20 +317,26 @@ export default function MoradorFuncionarios() {
   };
 
   if (carregando) {
-    return <div className="p-10 text-center font-bold text-slate-400">Carregando funcionários do apartamento...</div>;
+    return (
+      <div className="p-10 text-center font-bold text-slate-400">
+        Carregando funcionários do apartamento...
+      </div>
+    );
   }
 
   return (
-    <div className="max-w-[680px] mx-auto p-5 space-y-5">
+    <div className="max-w-[760px] mx-auto p-5 space-y-5">
       {/* Cabeçalho da Unidade */}
       <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3.5">
-          <div className="w-12 h-12 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center shrink-0">
+          <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0 bg-blue-100 text-blue-600">
             <Users size={24} />
           </div>
           <div>
-            <h2 className="text-lg font-extrabold text-slate-900">Funcionários do Meu Apartamento</h2>
-            <p className="text-xs text-slate-500 flex items-center gap-1.5 mt-0.5">
+            <h2 className="text-lg font-extrabold text-slate-900">
+              Funcionários do Meu Apartamento
+            </h2>
+            <p className="text-xs text-slate-500 flex flex-wrap items-center gap-1.5 mt-0.5">
               <Building2 size={13} className="text-slate-400" />
               {unidade?.bloco_nome ? `${unidade.bloco_nome} • ` : ''}
               Unidade {unidade?.unidade_num || '—'} • Acesso liberado na Portaria e no seu Bloco
@@ -335,7 +348,7 @@ export default function MoradorFuncionarios() {
           <button
             type="button"
             onClick={abrirNovo}
-            className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-extrabold flex items-center gap-1.5 shadow-sm cursor-pointer"
+            className="px-4 py-2.5 rounded-xl text-white text-xs font-extrabold flex items-center gap-1.5 shadow-sm cursor-pointer bg-blue-600 hover:bg-blue-700"
           >
             <UserPlus size={16} /> Cadastrar Funcionário
           </button>
@@ -411,7 +424,9 @@ export default function MoradorFuncionarios() {
             </div>
 
             <div className="sm:col-span-2">
-              <label className="block text-xs font-bold text-slate-600 mb-1">Função no Apartamento *</label>
+              <label className="block text-xs font-bold text-slate-600 mb-1">
+                Função no Apartamento *
+              </label>
               <select
                 value={funcao}
                 onChange={(e) => setFuncao(e.target.value)}
@@ -544,10 +559,11 @@ export default function MoradorFuncionarios() {
       {lista.length === 0 ? (
         <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center space-y-2">
           <div className="text-3xl">🏠</div>
-          <div className="text-base font-extrabold text-slate-800">Nenhum funcionário cadastrado no seu apartamento</div>
+          <div className="text-base font-extrabold text-slate-800">
+            Nenhum funcionário cadastrado no seu apartamento
+          </div>
           <p className="text-xs text-slate-500 max-w-md mx-auto">
-            Cadastre aqui as pessoas que trabalham na sua residência (secretária do lar, diarista, babá, etc.). Elas
-            ficarão vinculadas ao seu apartamento e terão acesso facial liberado na portaria e no seu bloco.
+            Cadastre aqui as pessoas que trabalham na sua residência (secretária do lar, diarista, babá, etc.). Elas ficarão vinculadas ao seu apartamento e terão acesso facial liberado na portaria e no seu bloco.
           </p>
         </div>
       ) : (
@@ -571,12 +587,22 @@ export default function MoradorFuncionarios() {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-extrabold text-slate-900 text-sm truncate">{f.nome}</span>
-                      <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
-                        {f.funcao}
+                      <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 flex items-center gap-1">
+                        <Briefcase size={11} /> {f.cargo_funcao || f.funcao}
                       </span>
+                      {f.turno_trabalho && (
+                        <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 flex items-center gap-1">
+                          <Clock size={11} /> {f.turno_trabalho}
+                        </span>
+                      )}
+                      {f.matricula_cracha && (
+                        <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 flex items-center gap-1">
+                          <Hash size={11} /> {f.matricula_cracha}
+                        </span>
+                      )}
                       {f.ativo ? (
                         <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-                          ● Ativo na Catraca
+                          ● Ativo no Facial Hikvision
                         </span>
                       ) : (
                         <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">

@@ -10,7 +10,8 @@ import { useSessao } from '../lib/useSessao';
 interface Dispositivo {
   id: number; nome: string; ip: string; porta: number; usuario: string;
   tipo_acesso: string; bloco_id: number | null; bloco_nome: string | null;
-  porta_1_ativa: boolean; porta_1_nome: string | null; porta_2_ativa: boolean; porta_2_nome: string | null;
+  porta_1_ativa: boolean; porta_1_nome: string | null; porta_1_modo_abertura?: string | null;
+  porta_2_ativa: boolean; porta_2_nome: string | null; porta_2_modo_abertura?: string | null;
 }
 interface Bloco { id: number; nome: string }
 interface Aviso { tipo: 'ok' | 'aviso' | 'erro'; mensagem: string }
@@ -52,12 +53,15 @@ interface EventoWatchdog {
 }
 interface Form {
   id: number | null; nome: string; ip: string; porta: string; usuario: string; senha: string;
-  tipo_acesso: string; bloco_id: string; porta_1_ativa: boolean; porta_1_nome: string; porta_2_ativa: boolean; porta_2_nome: string;
+  tipo_acesso: string; bloco_id: string;
+  porta_1_ativa: boolean; porta_1_nome: string; porta_1_modo_abertura: string;
+  porta_2_ativa: boolean; porta_2_nome: string; porta_2_modo_abertura: string;
 }
 
 const VAZIO: Form = {
   id: null, nome: '', ip: '', porta: '80', usuario: '', senha: '', tipo_acesso: 'geral_pedestre', bloco_id: '',
-  porta_1_ativa: true, porta_1_nome: 'Portão Pedestre', porta_2_ativa: false, porta_2_nome: 'Portão Veículos',
+  porta_1_ativa: true, porta_1_nome: 'Portão Pedestre', porta_1_modo_abertura: 'padrao',
+  porta_2_ativa: false, porta_2_nome: 'Portão Veículos', porta_2_modo_abertura: 'padrao',
 };
 const entrada = 'w-full px-3 py-2.5 border border-slate-300 rounded-lg outline-none focus:border-blue-500 bg-white text-slate-900';
 const th = 'text-left text-[0.72rem] font-extrabold uppercase tracking-wide text-slate-500 px-4 py-3 border-b border-slate-200';
@@ -352,7 +356,9 @@ export default function Terminais() {
     id: d.id, nome: d.nome, ip: d.ip, porta: String(d.porta ?? 80), usuario: d.usuario ?? 'admin', senha: '',
     tipo_acesso: d.tipo_acesso || 'geral_pedestre', bloco_id: d.bloco_id ? String(d.bloco_id) : '',
     porta_1_ativa: d.porta_1_ativa !== false, porta_1_nome: d.porta_1_nome ?? 'Portão Pedestre',
+    porta_1_modo_abertura: d.porta_1_modo_abertura || 'padrao',
     porta_2_ativa: !!d.porta_2_ativa, porta_2_nome: d.porta_2_nome ?? 'Portão Veículos',
+    porta_2_modo_abertura: d.porta_2_modo_abertura || 'padrao',
   });
 
   const salvar = (e: React.FormEvent) => {
@@ -1077,12 +1083,26 @@ export default function Terminais() {
               <p className="text-sm text-slate-500 mb-4">Selecione quais portas aparecerão no aplicativo do morador para abertura remota e defina os nomes de exibição.</p>
               <div className="grid gap-3 md:grid-cols-2">
                 {([1, 2] as const).map((n) => (
-                  <div key={n} className="bg-slate-50 border border-slate-300 p-4 rounded-xl">
-                    <label className="flex items-center gap-2.5 font-bold text-slate-700 mb-3 cursor-pointer">
+                  <div key={n} className="bg-slate-50 border border-slate-300 p-4 rounded-xl space-y-2.5">
+                    <label className="flex items-center gap-2.5 font-bold text-slate-700 cursor-pointer">
                       <input type="checkbox" checked={form[`porta_${n}_ativa`]} onChange={muda(`porta_${n}_ativa`)} className="w-5 h-5 accent-blue-500" />
                       Ativar Porta {n}
                     </label>
                     <input required value={form[`porta_${n}_nome`]} onChange={muda(`porta_${n}_nome`)} placeholder={n === 1 ? 'Ex: Portão Pedestre' : 'Ex: Portão Veículos'} className={entrada} />
+                    <div>
+                      <label className="block text-xs font-bold text-slate-600 mb-1">
+                        Modo de abertura no App do Morador:
+                      </label>
+                      <select
+                        value={form[`porta_${n}_modo_abertura`]}
+                        onChange={muda(`porta_${n}_modo_abertura`)}
+                        className={`${entrada} text-xs sm:text-sm font-semibold`}
+                      >
+                        <option value="padrao">⚙️ Seguir padrão das Configurações do Condomínio</option>
+                        <option value="sem_video">⚡ Abrir Portão Sem Vídeo (Direto em 1 toque)</option>
+                        <option value="com_video">📹 Abrir Portão Com Vídeo (Câmera antes de liberar)</option>
+                      </select>
+                    </div>
                   </div>
                 ))}
               </div>

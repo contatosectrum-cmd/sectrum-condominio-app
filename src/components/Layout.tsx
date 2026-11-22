@@ -1,21 +1,20 @@
-import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
-import { useEffect, useState } from 'react';
+import { Outlet, Link, useLocation } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
 import {
-  LogOut, Menu, Building2, Bell, Download, LayoutDashboard,
+  LogOut, Menu, Building2, Bell, LayoutDashboard,
   PanelLeftClose, PanelLeftOpen, Maximize2, Minimize2, X,
+  Search, ChevronDown, ChevronRight, ChevronsUpDown,
 } from 'lucide-react';
-import { menuDoUsuario, itemDoCaminho } from '../lib/menu';
+import { menuDoUsuario, itemDoCaminho, grupoDoCaminho, normalizarTextoBusca } from '../lib/menu';
 import { sair, selecionarCondominio, useSessao } from '../lib/useSessao';
 import { atualizarUsuario, type Usuario } from '../lib/sessao';
 import { api } from '../lib/api';
 import LimiteErro from './LimiteErro';
 import MonitorTransbordoPortaria from './MonitorTransbordoPortaria';
+import MonitorAlarmesRestricao from './MonitorAlarmesRestricao';
 import ModalExcluirConta from './ModalExcluirConta';
-
-// Espelho fiel de src/views/layout.php do sistema em producao + suporte a Modo Operacional (recolher menu no desktop e Tela Cheia):
-// - Logo da Sectrum (escudo azul + "Sectrum / Gestão Condominial")
-// - Card do usuario logado (.sidebar-user) logo abaixo da logo com avatar colorido (mesmo CRC32 do PHP), nome e perfil
-// - Botao de recolher/expandir menu lateral no desktop e mobile + botao de Tela Cheia na topbar
+import ModalPesquisaInteligente from './ModalPesquisaInteligente';
+import ModalFichaUnidade360 from './ModalFichaUnidade360';
 
 const AVATAR_CORES = ['#3b82f6', '#10b981', '#8b5cf6', '#f59e0b', '#ef4444', '#06b6d4'];
 
@@ -41,32 +40,39 @@ function corAvatar(nome: string): string {
   return AVATAR_CORES[Math.abs(signed) % AVATAR_CORES.length];
 }
 
-function dataHojeFormatada(): string {
-  return new Date().toLocaleDateString('pt-BR', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-  });
-}
-
-/** Seletor de condominio do superadmin (melhoria: no legado ele nao conseguia trocar). */
+/** Seletor de condominio do superadmin (com contagem de pessoas por condomínio e total geral). */
 function SeletorCondominio() {
   const { usuario } = useSessao();
-  const [lista, setLista] = useState<{ id: number; nome: string; ativo: boolean }[]>([]);
+  const location = useLocation();
+  const [lista, setLista] = useState<{ id: number; nome: string; ativo: boolean; total_pessoas?: number }[]>([]);
+  const [totalSistema, setTotalSistema] = useState<number | null>(null);
   const [trocando, setTrocando] = useState(false);
-  const navigate = useNavigate();
+
+  const carregarLista = () => {
+    api<{ condominios: { id: number; nome: string; ativo: boolean; total_pessoas?: number }[]; total_pessoas_sistema?: number }>('condominios_disponiveis')
+      .then((r) => {
+        setLista(r.condominios);
+        if (typeof r.total_pessoas_sistema === 'number') {
+          setTotalSistema(r.total_pessoas_sistema);
+        }
+      })
+      .catch(() => setLista([]));
+  };
 
   useEffect(() => {
-    api<{ condominios: { id: number; nome: string; ativo: boolean }[] }>('condominios_disponiveis')
-      .then((r) => setLista(r.condominios))
-      .catch(() => setLista([]));
+    carregarLista();
+  }, [location.pathname, usuario?.condominio_id]);
+
+  useEffect(() => {
+    const onAtualizar = () => carregarLista();
+    window.addEventListener('sectrum:atualizar-contadores', onAtualizar);
+    return () => window.removeEventListener('sectrum:atualizar-contadores', onAtualizar);
   }, []);
 
   const trocar = async (valor: string) => {
     setTrocando(true);
     try {
       await selecionarCondominio(valor === '' ? null : Number(valor));
-      navigate('/', { replace: true });
     } finally {
       setTrocando(false);
     }
@@ -74,28 +80,25 @@ function SeletorCondominio() {
 
   return (
     <label className="flex items-center gap-1.5 text-xs">
-      <Building2 size={16} className="text-slate-400 shrink-0" />
+      <Building2 size={15} className="text-slate-400 shrink-0 hidden sm:inline" />
       <select
         value={usuario?.condominio_id ?? ''}
         disabled={trocando}
         onChange={(e) => trocar(e.target.value)}
-        className="max-w-[210px] bg-slate-50 border border-slate-200 rounded-full px-3 py-1 font-semibold text-slate-700 outline-none focus:border-blue-500 text-xs"
-        title="Condomínio em uso"
+        className="max-w-[235px] max-[480px]:max-w-[145px] bg-slate-50 border border-slate-200 rounded-full px-2.5 py-1.5 font-semibold text-slate-700 outline-none focus:border-blue-500 text-xs"
+        title="Condomínio em uso (quantidade de pessoas ativas entre parênteses)"
       >
-        <option value="">— Visão geral (todos) —</option>
+        <option value="">
+          — Visão geral (todos{totalSistema !== null ? `: ${totalSistema.toLocaleString('pt-BR')}` : ''}) —
+        </option>
         {lista.map((c) => (
           <option key={c.id} value={c.id}>
-            {c.nome}{c.ativo ? '' : ' (inativo)'}
+            {c.nome} ({(c.total_pessoas ?? 0).toLocaleString('pt-BR')}){c.ativo ? '' : ' [inativo]'}
           </option>
         ))}
       </select>
     </label>
   );
-}
-
-interface BeforeInstallPromptEvent extends Event {
-  prompt: () => Promise<void>;
-  userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
 }
 
 export default function Layout() {
@@ -109,17 +112,25 @@ export default function Layout() {
     precadastros: 0,
     total: 0,
   });
-  const [pwaPrompt, setPwaPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [menuUsuarioAberto, setMenuUsuarioAberto] = useState(false);
   const [excluirContaAberto, setExcluirContaAberto] = useState(false);
 
+  // Navegabilidade Inteligente: Filtro Rápido da Sidebar + Pesquisa Global (Ctrl+K) + Ficha 360º Direta
+  const [filtroMenu, setFiltroMenu] = useState('');
+  const [pesquisaAberta, setPesquisaAberta] = useState(false);
+  const [ficha360GlobalId, setFicha360GlobalId] = useState<number | null>(null);
+  const [gruposAbertos, setGruposAbertos] = useState<Record<string, boolean>>({});
+
+  // Atalho global Ctrl+K / Cmd+K para abrir a Pesquisa Inteligente de qualquer tela
   useEffect(() => {
-    const handler = (e: Event) => {
-      e.preventDefault();
-      setPwaPrompt(e as BeforeInstallPromptEvent);
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setPesquisaAberta((v) => !v);
+      }
     };
-    window.addEventListener('beforeinstallprompt', handler);
-    return () => window.removeEventListener('beforeinstallprompt', handler);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
   }, []);
 
   useEffect(() => {
@@ -150,12 +161,16 @@ export default function Layout() {
 
   useEffect(() => {
     if (!usuario) return;
+    let cancelado = false;
+    const cidEsperado = usuario.condominio_id ?? null;
 
     const sincronizarModulosSessao = () => {
       api<{ usuario: Usuario }>('auth_eu')
         .then((r) => {
+          if (cancelado) return;
           const uNovo = r?.usuario;
           if (!uNovo) return;
+          if ((uNovo.condominio_id ?? null) !== cidEsperado) return;
           const mudou =
             uNovo.permite_temporada !== usuario.permite_temporada ||
             uNovo.modulo_airbnb !== usuario.modulo_airbnb ||
@@ -168,6 +183,14 @@ export default function Layout() {
             uNovo.modulo_emergencia !== usuario.modulo_emergencia ||
             uNovo.emergencia_furar_nao_perturbe !== usuario.emergencia_furar_nao_perturbe ||
             uNovo.cameras_morador_ativo !== usuario.cameras_morador_ativo ||
+            uNovo.whatsapp_chat_condominio !== usuario.whatsapp_chat_condominio ||
+            uNovo.modulo_seguranca_facial !== usuario.modulo_seguranca_facial ||
+            uNovo.modulo_financeiro !== usuario.modulo_financeiro ||
+            uNovo.modulo_transparencia !== usuario.modulo_transparencia ||
+            uNovo.modulo_mudancas !== usuario.modulo_mudancas ||
+            uNovo.modulo_manutencoes !== usuario.modulo_manutencoes ||
+            uNovo.subperfil !== usuario.subperfil ||
+            JSON.stringify(uNovo.permissoes_sistema) !== JSON.stringify(usuario.permissoes_sistema) ||
             uNovo.condominio_nome !== usuario.condominio_nome;
           if (mudou) {
             atualizarUsuario(uNovo);
@@ -180,7 +203,9 @@ export default function Layout() {
 
     if (usuario.perfil === 'morador') {
       setNotif({ visitas: 0, precadastros: 0, total: 0 });
-      return;
+      return () => {
+        cancelado = true;
+      };
     }
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.getRegistrations().then((regs) => {
@@ -189,20 +214,107 @@ export default function Layout() {
     }
     if (!usuario.condominio_id) {
       setNotif({ visitas: 0, precadastros: 0, total: 0 });
-      return;
+      return () => {
+        cancelado = true;
+      };
     }
     api<{ visitas: number; precadastros: number; total: number }>('notificacoes_layout', { query: { v: 3 } })
-      .then(setNotif)
+      .then((n) => {
+        if (!cancelado) setNotif(n);
+      })
       .catch(() => {});
-  }, [usuario, location.pathname]);
 
-  if (!usuario) return null; // ProtegerRota ja redireciona
+    return () => {
+      cancelado = true;
+    };
+  }, [usuario?.id, usuario?.condominio_id, location.pathname]);
 
-  const grupos = menuDoUsuario(usuario);
+  // Inicializa os grupos abertos do Accordion e garante que o grupo da rota atual esteja sempre aberto
+  const grupos = useMemo(() => (usuario ? menuDoUsuario(usuario) : []), [usuario]);
+  const grupoAtivo = useMemo(
+    () => (usuario ? grupoDoCaminho(location.pathname, usuario) : undefined),
+    [location.pathname, usuario],
+  );
+
+  useEffect(() => {
+    if (!usuario || grupos.length === 0) return;
+    const chaveStorage = `sectrum:nav-accordion:${usuario.perfil}`;
+    let salvo: Record<string, boolean> = {};
+    try {
+      const raw = localStorage.getItem(chaveStorage);
+      if (raw) salvo = JSON.parse(raw);
+    } catch {
+      salvo = {};
+    }
+    setGruposAbertos((ant) => {
+      const novo: Record<string, boolean> = {};
+      for (const g of grupos) {
+        if (g.id in ant) novo[g.id] = ant[g.id];
+        else if (g.id in salvo) novo[g.id] = salvo[g.id];
+        else novo[g.id] = Boolean(g.abertoPorPadrao);
+      }
+      if (grupoAtivo) {
+        novo[grupoAtivo.id] = true;
+      }
+      return novo;
+    });
+  }, [usuario?.perfil, grupos.length, grupoAtivo?.id]);
+
+  const alternarGrupoAccordion = (grupoId: string) => {
+    setGruposAbertos((ant) => {
+      const prox = { ...ant, [grupoId]: !ant[grupoId] };
+      if (usuario) {
+        try {
+          localStorage.setItem(`sectrum:nav-accordion:${usuario.perfil}`, JSON.stringify(prox));
+        } catch {
+          // ignora erro de quota
+        }
+      }
+      return prox;
+    });
+  };
+
+  const todosAbertos = grupos.length > 0 && grupos.every((g) => gruposAbertos[g.id]);
+  const alternarTodosGrupos = () => {
+    const abrir = !todosAbertos;
+    const prox: Record<string, boolean> = {};
+    for (const g of grupos) prox[g.id] = abrir;
+    if (!abrir && grupoAtivo) prox[grupoAtivo.id] = true;
+    setGruposAbertos(prox);
+    if (usuario) {
+      try {
+        localStorage.setItem(`sectrum:nav-accordion:${usuario.perfil}`, JSON.stringify(prox));
+      } catch {
+        // ignora
+      }
+    }
+  };
+
+  // Filtra os grupos do menu lateral em tempo real caso o usuário digite no campo rápido da sidebar
+  const gruposVisiveisSidebar = useMemo(() => {
+    const q = normalizarTextoBusca(filtroMenu);
+    if (!q) return grupos;
+    const tokens = q.split(/\s+/).filter(Boolean);
+    return grupos
+      .map((g) => ({
+        ...g,
+        itens: g.itens.filter((item) => {
+          const base = normalizarTextoBusca(
+            `${item.nome} ${item.titulo || ''} ${g.titulo} ${(item.palavrasChave || []).join(' ')}`,
+          );
+          return tokens.every((tk) => base.includes(tk));
+        }),
+      }))
+      .filter((g) => g.itens.length > 0);
+  }, [grupos, filtroMenu]);
+
+  if (!usuario) return null;
+
   const itemAtual = itemDoCaminho(location.pathname);
   const precisaCondominio = itemAtual?.exigeCondominio && usuario.condominio_id === null;
   const IconePagina = itemAtual?.icone ?? LayoutDashboard;
-  const tituloPagina = itemAtual?.titulo || itemAtual?.nome || 'Sectrum';
+  const tituloCurtoPagina = itemAtual?.nome || 'Sectrum';
+  const tituloCompletoPagina = itemAtual?.titulo || itemAtual?.nome || 'Sectrum';
   const avCor = corAvatar(usuario.nome);
   const avIni = iniciais(usuario.nome);
 
@@ -225,9 +337,6 @@ export default function Layout() {
     (/iPhone|iPad|iPod/i.test(navigator.userAgent) ||
       (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) ||
       (typeof document !== 'undefined' && document.documentElement.classList.contains('sectrum-ios-native')));
-  // App Android nativo (Capacitor 8 / Android 15+): a tela é desenhada por baixo da barra de status e da barra de
-  // gestos. O Capacitor informa as alturas em env(safe-area-inset-*) e em --safe-area-inset-* (WebView antigos);
-  // sem esse espaço o menu fica sob a barra de status e o toque vai para o sistema (abre a cortina de notificações).
   const ehAndroidNativo =
     !ehIos && typeof window !== 'undefined' && Boolean(window.SectrumAndroid?.ehAppNativo?.());
   const safeTopCss = ehIos
@@ -254,7 +363,7 @@ export default function Layout() {
 
   return (
     <div className="flex min-h-screen bg-[#f1f5f9] text-[#334155] font-sans text-[15px] leading-[1.5]">
-      {/* Overlay mobile (legado: .overlay) */}
+      {/* Overlay mobile */}
       {sidebarOpen && (
         <div
           className="min-[901px]:hidden fixed inset-0 bg-black/45 z-[190] backdrop-blur-[2px]"
@@ -262,17 +371,17 @@ export default function Layout() {
         />
       )}
 
-      {/* SIDEBAR (largura ampliada e itens maiores para facilitar leitura e toque no celular e desktop) */}
+      {/* SIDEBAR INDEXADA & RECOLHÍVEL */}
       <aside
         style={{ paddingTop: safeTopCss, paddingBottom: safeBottomCss }}
-        className={`w-[284px] max-[900px]:w-[308px] bg-[#0f172a] h-screen h-[100dvh] max-h-[100dvh] fixed top-0 left-0 flex flex-col z-[200] transition-transform duration-250 ease-[cubic-bezier(0.4,0,0.2,1)] shadow-[4px_0_24px_rgba(0,0,0,0.22)] ${
+        className={`w-[280px] max-[900px]:w-[304px] bg-[#0f172a] h-screen h-[100dvh] max-h-[100dvh] fixed top-0 left-0 flex flex-col z-[200] transition-transform duration-250 ease-[cubic-bezier(0.4,0,0.2,1)] shadow-[4px_0_24px_rgba(0,0,0,0.22)] ${
           sidebarOpen ? 'max-[900px]:translate-x-0' : 'max-[900px]:-translate-x-full'
         } ${desktopCollapsed ? 'min-[901px]:-translate-x-full' : 'min-[901px]:translate-x-0'}`}
       >
-        {/* Marca (.sidebar-brand) */}
-        <div className="px-5 h-[66px] flex items-center justify-between gap-3 border-b border-white/[0.08] shrink-0">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-[40px] h-[40px] bg-[#2563eb] rounded-[11px] flex items-center justify-center shrink-0 shadow-md shadow-blue-600/30">
+        {/* Marca */}
+        <div className="px-4 h-[60px] flex items-center justify-between gap-3 border-b border-white/[0.08] shrink-0">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-[36px] h-[36px] bg-[#2563eb] rounded-[10px] flex items-center justify-center shrink-0 shadow-md shadow-blue-600/30">
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 viewBox="0 0 24 24"
@@ -281,14 +390,14 @@ export default function Layout() {
                 strokeWidth="2.5"
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                className="text-white w-[21px] h-[21px]"
+                className="text-white w-[19px] h-[19px]"
               >
                 <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
               </svg>
             </div>
-            <div className="text-[1.08rem] font-extrabold text-white tracking-[-0.3px] leading-[1.15]">
+            <div className="text-[1.02rem] font-extrabold text-white tracking-[-0.3px] leading-[1.15]">
               Sectrum
-              <small className="block text-[0.76rem] font-medium text-white/45 tracking-normal">
+              <small className="block text-[0.72rem] font-medium text-white/45 tracking-normal">
                 Gestão Condominial
               </small>
             </div>
@@ -299,93 +408,190 @@ export default function Layout() {
             className="min-[901px]:hidden p-2 rounded-xl bg-white/[0.08] text-white/80 hover:text-white active:bg-white/[0.18] transition-colors cursor-pointer touch-manipulation"
             aria-label="Fechar Menu"
           >
-            <X size={20} />
+            <X size={19} />
           </button>
         </div>
 
-        {/* User card (.sidebar-user) */}
-        <div className="mx-3 mt-3 px-3.5 py-3 rounded-xl bg-white/[0.06] border border-white/[0.06] flex items-center justify-between gap-3 shrink-0">
-          <div className="flex items-center gap-3 min-w-0">
+        {/* Card compacto do usuário */}
+        <div className="mx-3 mt-2.5 px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/[0.06] flex items-center justify-between gap-2.5 shrink-0">
+          <div className="flex items-center gap-2.5 min-w-0">
             <div
-              className="w-[40px] h-[40px] rounded-full flex items-center justify-center font-extrabold text-[0.85rem] text-white shrink-0 tracking-[0.5px] shadow-xs"
+              className="w-[34px] h-[34px] rounded-full flex items-center justify-center font-extrabold text-[0.78rem] text-white shrink-0 tracking-[0.5px]"
               style={{ background: avCor }}
             >
               {avIni}
             </div>
             <div className="min-w-0 flex-1">
-              <div className="text-[0.95rem] font-bold text-white truncate">{usuario.nome}</div>
-              <div className="text-[0.78rem] text-white/45 capitalize mt-[1px]">{usuario.perfil}</div>
+              <div className="text-[0.88rem] font-bold text-white truncate">{usuario.nome}</div>
+              <div className="text-[0.72rem] text-white/45 capitalize leading-tight">
+                {usuario.perfil}
+              </div>
             </div>
           </div>
           <button
             onClick={sair}
-            className="p-2 rounded-lg text-red-400 hover:text-red-300 hover:bg-white/[0.08] active:bg-white/[0.15] transition-colors shrink-0 cursor-pointer"
+            className="p-1.5 rounded-lg text-red-400 hover:text-red-300 hover:bg-white/[0.08] transition-colors shrink-0 cursor-pointer"
             title="Sair do Sistema"
             aria-label="Sair do Sistema"
           >
-            <LogOut size={18} />
+            <LogOut size={16} />
           </button>
         </div>
 
-        {/* Navegação (.sidebar-nav) — opções amplas e legíveis */}
-        <nav className="flex-1 overflow-y-auto px-3 py-3 sidebar-scroll">
-          {grupos.map((group, idx) => (
-            <div key={group.titulo}>
-              <div
-                className={`text-[0.74rem] font-extrabold text-white/40 uppercase tracking-[1.3px] px-3 pb-2 ${
-                  idx === 0 ? 'pt-1' : 'pt-4 mt-1 border-t border-white/[0.06]'
-                }`}
+        {/* Filtro Rápido do Menu Lateral */}
+        <div className="px-3 pt-2.5 pb-1 shrink-0">
+          <div className="relative flex items-center">
+            <Search size={14} className="absolute left-3 text-white/40 pointer-events-none" />
+            <input
+              type="text"
+              value={filtroMenu}
+              onChange={(e) => setFiltroMenu(e.target.value)}
+              placeholder="Filtrar menu (ex: PIX, CND, Ata)..."
+              className="w-full pl-8 pr-7 py-1.5 rounded-lg bg-white/[0.07] border border-white/[0.1] focus:border-blue-400 focus:bg-white/[0.11] text-white placeholder:text-white/35 text-xs font-medium outline-none transition"
+            />
+            {filtroMenu ? (
+              <button
+                type="button"
+                onClick={() => setFiltroMenu('')}
+                className="absolute right-2 text-white/45 hover:text-white cursor-pointer"
+                aria-label="Limpar filtro"
               >
-                {group.titulo}
-              </div>
-              {group.itens.map((item) => {
-                const Icon = item.icone;
-                const isActive = location.pathname === item.caminho;
-                const badge = badgeDoItem(item.caminho);
-                return (
-                  <Link
-                    key={item.caminho}
-                    to={item.caminho}
-                    onClick={() => setSidebarOpen(false)}
-                    className={`flex items-center gap-3 px-3 py-3 rounded-xl text-[1rem] transition-all duration-200 mb-1.5 relative ${
-                      isActive
-                        ? 'bg-[#2563eb] text-white font-bold shadow-[0_4px_14px_rgba(37,99,235,0.45)]'
-                        : 'text-white/80 font-semibold hover:bg-white/[0.09] hover:text-white active:bg-white/[0.14]'
+                <X size={13} />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={alternarTodosGrupos}
+                className="absolute right-2 text-white/35 hover:text-white/80 cursor-pointer"
+                title={todosAbertos ? 'Recolher categorias secundárias' : 'Expandir todas as categorias'}
+              >
+                <ChevronsUpDown size={13} />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Navegação Indexada em Categorias Recolhíveis (Accordion) */}
+        <nav className="flex-1 overflow-y-auto px-3 py-2 sidebar-scroll space-y-1.5">
+          {gruposVisiveisSidebar.length === 0 ? (
+            <div className="px-3 py-6 text-center text-xs text-white/45 space-y-2">
+              <div>Nenhum menu com &quot;{filtroMenu}&quot;.</div>
+              <button
+                type="button"
+                onClick={() => {
+                  const q = filtroMenu;
+                  setFiltroMenu('');
+                  setSidebarOpen(false);
+                  setPesquisaAberta(true);
+                  void q;
+                }}
+                className="px-3 py-1.5 rounded-lg bg-blue-600/30 hover:bg-blue-600/50 text-blue-200 font-bold text-xs cursor-pointer"
+              >
+                🔎 Usar Pesquisa Inteligente Global
+              </button>
+            </div>
+          ) : (
+            gruposVisiveisSidebar.map((group) => {
+              const filtrando = filtroMenu.trim() !== '';
+              const aberto = filtrando || Boolean(gruposAbertos[group.id]);
+              const contemRotaAtiva = group.itens.some((i) => i.caminho === location.pathname);
+              const badgeGrupo = group.itens.reduce((soma, i) => soma + badgeDoItem(i.caminho), 0);
+
+              return (
+                <div
+                  key={group.id}
+                  className={`rounded-xl transition-colors ${
+                    aberto ? 'bg-white/[0.025]' : ''
+                  }`}
+                >
+                  {/* Cabeçalho clicável da Categoria */}
+                  <button
+                    type="button"
+                    onClick={() => alternarGrupoAccordion(group.id)}
+                    className={`w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-xl text-left transition cursor-pointer select-none ${
+                      contemRotaAtiva
+                        ? 'text-blue-300 hover:bg-white/[0.06]'
+                        : 'text-white/50 hover:text-white/85 hover:bg-white/[0.05]'
                     }`}
                   >
-                    <span
-                      className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 transition-colors ${
-                        isActive ? 'bg-white/20 text-white' : 'bg-white/[0.06] text-blue-300'
-                      }`}
-                    >
-                      <Icon size={20} className="shrink-0" />
-                    </span>
-                    <span className="leading-snug">{item.nome}</span>
-                    {badge > 0 && (
-                      <span
-                        className={`ml-auto text-white text-[0.75rem] font-extrabold px-2 py-0.5 rounded-full leading-[1.4] ${
-                          isActive ? 'bg-white/25' : 'bg-red-500'
-                        }`}
-                      >
-                        {badge}
+                    <span className="flex items-center gap-1.5 min-w-0">
+                      {aberto ? (
+                        <ChevronDown size={14} className="shrink-0 opacity-80" />
+                      ) : (
+                        <ChevronRight size={14} className="shrink-0 opacity-80" />
+                      )}
+                      <span className="text-[0.72rem] font-extrabold uppercase tracking-[1px] truncate">
+                        {group.titulo}
                       </span>
-                    )}
-                  </Link>
-                );
-              })}
-            </div>
-          ))}
+                    </span>
+
+                    <span className="flex items-center gap-1.5 shrink-0">
+                      {!aberto && badgeGrupo > 0 && (
+                        <span className="bg-red-500 text-white text-[0.68rem] font-extrabold px-1.5 py-0.2 rounded-full">
+                          {badgeGrupo}
+                        </span>
+                      )}
+                      <span className="text-[0.68rem] font-bold text-white/30">
+                        {group.itens.length}
+                      </span>
+                    </span>
+                  </button>
+
+                  {/* Itens da Categoria */}
+                  {aberto && (
+                    <div className="pt-0.5 pb-1 px-1 space-y-1">
+                      {group.itens.map((item) => {
+                        const Icon = item.icone;
+                        const isActive = location.pathname === item.caminho;
+                        const badge = badgeDoItem(item.caminho);
+                        return (
+                          <Link
+                            key={item.caminho}
+                            to={item.caminho}
+                            onClick={() => setSidebarOpen(false)}
+                            className={`flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-[0.9rem] transition-all duration-150 relative ${
+                              isActive
+                                ? 'bg-[#2563eb] text-white font-bold shadow-[0_3px_12px_rgba(37,99,235,0.42)]'
+                                : 'text-white/80 font-medium hover:bg-white/[0.09] hover:text-white active:bg-white/[0.14]'
+                            }`}
+                          >
+                            <span
+                              className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors ${
+                                isActive ? 'bg-white/20 text-white' : 'bg-white/[0.06] text-blue-300'
+                              }`}
+                            >
+                              <Icon size={17} className="shrink-0" />
+                            </span>
+                            <span className="leading-snug truncate">{item.nome}</span>
+                            {badge > 0 && (
+                              <span
+                                className={`ml-auto text-white text-[0.72rem] font-extrabold px-2 py-0.5 rounded-full leading-[1.3] ${
+                                  isActive ? 'bg-white/25' : 'bg-red-500'
+                                }`}
+                              >
+                                {badge}
+                              </span>
+                            )}
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
         </nav>
 
-        {/* Footer sidebar (.sidebar-footer) */}
-        <div className="p-3 border-t border-white/[0.08] shrink-0 space-y-2">
+        {/* Rodapé enxuto da Sidebar */}
+        <div className="p-2.5 border-t border-white/[0.08] shrink-0">
           <a
             href={LINK_SUPORTE}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex flex-col items-start gap-0.5 px-3.5 py-2.5 rounded-xl bg-emerald-500/[0.14] hover:bg-emerald-500/[0.24] text-[#34d399] text-[0.92rem] font-bold transition-colors"
+            className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-emerald-500/[0.13] hover:bg-emerald-500/[0.22] text-[#34d399] text-[0.82rem] font-bold transition-colors"
           >
-            <div className="flex items-center gap-2.5">
+            <span className="flex items-center gap-2">
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 viewBox="0 0 24 24"
@@ -394,114 +600,123 @@ export default function Layout() {
                 strokeWidth="2"
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                className="w-[18px] h-[18px] shrink-0"
+                className="w-[16px] h-[16px] shrink-0"
               >
                 <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
               </svg>
-              <span>Falar com Suporte</span>
-            </div>
-            <span className="text-[0.82rem] opacity-90 ml-[26px]">(98) 98598-3566</span>
+              <span>Suporte WhatsApp</span>
+            </span>
+            <span className="text-[0.74rem] opacity-85">(98) 98598-3566</span>
           </a>
-          <button
-            onClick={sair}
-            className="w-full flex items-center gap-2.5 px-3.5 py-3 rounded-xl bg-red-500/[0.14] hover:bg-red-500/[0.24] text-[#fca5a5] text-[0.95rem] font-bold transition-colors cursor-pointer"
-          >
-            <LogOut size={18} className="shrink-0" />
-            <span>Sair do Sistema</span>
-          </button>
         </div>
       </aside>
 
-      {/* MAIN (.main) */}
+      {/* MAIN */}
       <div
         style={{ paddingBottom: ehAndroidNativo ? safeBottomCss : undefined }}
         className={`flex-1 flex flex-col min-h-screen min-w-0 transition-[margin] duration-250 ease-[cubic-bezier(0.4,0,0.2,1)] ${
-          desktopCollapsed ? 'min-[901px]:ml-0' : 'min-[901px]:ml-[284px]'
+          desktopCollapsed ? 'min-[901px]:ml-0' : 'min-[901px]:ml-[280px]'
         }`}
       >
-        {/* Topbar (.topbar) */}
+        {/* Topbar Limpa com Breadcrumb + Pesquisa Inteligente Central (Ctrl+K) */}
         <header
           style={{
             paddingTop: appNativoComBarras ? `calc(${safeTopCss} + 8px)` : undefined,
             paddingBottom: appNativoComBarras ? '10px' : undefined,
           }}
-          className="min-h-[62px] bg-white/95 backdrop-blur-md px-6 max-[900px]:px-3.5 flex items-center justify-between border-b border-slate-200/80 sticky top-0 z-[100] gap-3"
+          className="min-h-[60px] bg-white/95 backdrop-blur-md px-5 max-[900px]:px-3 flex items-center justify-between border-b border-slate-200/80 sticky top-0 z-[100] gap-2.5"
         >
-          <div className="flex items-center gap-2.5 flex-1 min-w-0">
+          {/* Esquerda: Botão Menu + Breadcrumb da Categoria & Página */}
+          <div className="flex items-center gap-2.5 min-w-0 shrink">
             <button
               type="button"
               onClick={alternarMenu}
-              className="px-3.5 py-2.5 min-h-[42px] rounded-xl bg-slate-100 hover:bg-slate-200 active:bg-slate-300/80 text-slate-800 border border-slate-200/90 transition-colors shrink-0 cursor-pointer flex items-center gap-1.5 shadow-2xs touch-manipulation select-none"
+              className="px-3 py-2 min-h-[38px] rounded-xl bg-slate-100 hover:bg-slate-200 active:bg-slate-300/80 text-slate-800 border border-slate-200/90 transition-colors shrink-0 cursor-pointer flex items-center gap-1.5 shadow-2xs touch-manipulation select-none"
               aria-label="Alternar Menu Lateral"
               title={desktopCollapsed ? 'Mostrar menu lateral' : 'Recolher menu lateral'}
             >
-              <span className="min-[901px]:hidden flex items-center gap-1.5">
-                <Menu size={22} className="text-blue-600" />
+              <span className="min-[901px]:hidden flex items-center gap-1">
+                <Menu size={20} className="text-blue-600" />
                 <span className="text-xs font-extrabold text-slate-800">Menu</span>
               </span>
               <span className="max-[900px]:hidden">
-                {desktopCollapsed ? <PanelLeftOpen size={20} /> : <PanelLeftClose size={20} />}
+                {desktopCollapsed ? <PanelLeftOpen size={19} /> : <PanelLeftClose size={19} />}
               </span>
             </button>
-            <div className="flex items-center gap-[8px] text-[1rem] font-extrabold text-[#0f172a] truncate min-w-0">
-              <IconePagina size={19} className="text-[#2563eb] shrink-0" />
-              <span className="truncate">{tituloPagina}</span>
+
+            <div className="min-w-0" title={tituloCompletoPagina}>
+              {grupoAtivo && (
+                <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 leading-none mb-0.5 truncate max-[640px]:hidden">
+                  {grupoAtivo.titulo}
+                </div>
+              )}
+              <div className="flex items-center gap-1.5 text-[0.96rem] font-extrabold text-[#0f172a] truncate">
+                <IconePagina size={17} className="text-[#2563eb] shrink-0" />
+                <span className="truncate">{tituloCurtoPagina}</span>
+              </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-[6px] shrink-0">
+          {/* Centro: Barra de Pesquisa Rápida & Inteligente (Desktop/Tablet) */}
+          <div className="flex-1 max-w-md mx-2 max-[720px]:hidden">
+            <button
+              type="button"
+              onClick={() => setPesquisaAberta(true)}
+              className="w-full flex items-center justify-between gap-2 px-3.5 py-2 rounded-xl bg-slate-100/90 hover:bg-slate-200/75 border border-slate-200/90 text-slate-500 hover:text-slate-800 transition cursor-pointer shadow-2xs"
+              title="Abrir Pesquisa Rápida e Inteligente (Ctrl+K)"
+            >
+              <span className="flex items-center gap-2 min-w-0 truncate text-xs font-semibold">
+                <Search size={15} className="text-blue-600 shrink-0" />
+                <span className="truncate">
+                  {usuario.perfil === 'morador'
+                    ? 'Pesquisar boletos PIX, CND, reservas, docs...'
+                    : 'Pesquisa inteligente (apto, morador, placa, NF, tela)...'}
+                </span>
+              </span>
+              <kbd className="px-1.5 py-0.5 rounded-md bg-white border border-slate-300 text-[10px] font-mono font-bold text-slate-500 shrink-0">
+                Ctrl K
+              </kbd>
+            </button>
+          </div>
+
+          {/* Direita: Lupa Mobile + Seletor Condomínio + Notificações + Tela Cheia + Avatar */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            {/* Gatilho rápido de Pesquisa no Mobile */}
+            <button
+              type="button"
+              onClick={() => setPesquisaAberta(true)}
+              className="min-[721px]:hidden px-2.5 py-2 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200/80 flex items-center gap-1 text-xs font-extrabold cursor-pointer shrink-0"
+              aria-label="Pesquisa Rápida"
+              title="Pesquisa Rápida e Inteligente"
+            >
+              <Search size={16} />
+              <span className="max-[390px]:hidden">Buscar</span>
+            </button>
+
             {usuario.superadmin && <SeletorCondominio />}
 
             <button
               onClick={alternarTelaCheia}
-              className="max-[640px]:hidden w-[36px] h-[36px] rounded-[8px] flex items-center justify-center text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition-colors cursor-pointer"
+              className="max-[640px]:hidden w-[34px] h-[34px] rounded-[8px] flex items-center justify-center text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition-colors cursor-pointer"
               title={emTelaCheia ? 'Sair da Tela Cheia (ESC)' : 'Modo Operacional em Tela Cheia'}
             >
-              {emTelaCheia ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
+              {emTelaCheia ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
             </button>
-
-            {pwaPrompt && (
-              <button
-                onClick={() => {
-                  pwaPrompt.prompt();
-                  pwaPrompt.userChoice.finally(() => setPwaPrompt(null));
-                }}
-                className="w-[36px] h-[36px] rounded-[8px] flex items-center justify-center text-[#2563eb] hover:bg-slate-100 transition-colors"
-                title="Instalar app na tela inicial"
-              >
-                <Download size={18} />
-              </button>
-            )}
 
             {notif.total > 0 && (
               <Link
                 to={notif.precadastros > 0 ? '/precadastros' : '/visitas'}
-                className="w-[36px] h-[36px] rounded-[8px] flex items-center justify-center text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition-colors relative"
+                className="w-[34px] h-[34px] rounded-[8px] flex items-center justify-center text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition-colors relative"
                 title={`${notif.total} notificação(ões)`}
               >
-                <Bell size={18} />
+                <Bell size={17} />
                 <span className="absolute top-[2px] right-[2px] bg-[#ef4444] text-white text-[0.55em] font-extrabold px-[4px] py-[2px] rounded-[20px] min-w-[16px] text-center leading-[1.3]">
                   {notif.total}
                 </span>
               </Link>
             )}
 
-            <div className="max-[640px]:hidden text-[0.82em] text-[#64748b] bg-[#f8fafc] px-[12px] py-[5px] rounded-[20px] border border-[#e2e8f0] font-medium">
-              {dataHojeFormatada()}
-            </div>
-
-            {/* Botão Sair visível direto na barra superior */}
-            <button
-              onClick={sair}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100/80 active:bg-rose-100 border border-rose-200/80 transition-colors text-xs font-bold cursor-pointer shrink-0"
-              title="Sair do sistema (Logout)"
-              aria-label="Sair do sistema"
-            >
-              <LogOut size={16} className="shrink-0 text-rose-600" />
-              <span className="max-[480px]:hidden">Sair</span>
-            </button>
-
-            {/* Avatar do usuário com menu dropdown ao clicar */}
+            {/* Avatar do usuário com menu dropdown */}
             <div className="relative shrink-0">
               <button
                 type="button"
@@ -624,6 +839,23 @@ export default function Layout() {
           </div>
         </header>
 
+        {/* Central de Pesquisa Rápida & Inteligente (Ctrl+K) */}
+        <ModalPesquisaInteligente
+          aberto={pesquisaAberta}
+          usuario={usuario}
+          onFechar={() => setPesquisaAberta(false)}
+          onAbrirFichaUnidade360={(unidId) => setFicha360GlobalId(unidId)}
+        />
+
+        {/* Ficha 360º aberta diretamente pela Pesquisa Inteligente de qualquer tela */}
+        {ficha360GlobalId !== null && (
+          <ModalFichaUnidade360
+            unidadeId={ficha360GlobalId}
+            limiteVagasCondominio={2}
+            onFechar={() => setFicha360GlobalId(null)}
+          />
+        )}
+
         {excluirContaAberto && (
           <ModalExcluirConta perfil={usuario.perfil} onFechar={() => setExcluirContaAberto(false)} />
         )}
@@ -631,6 +863,11 @@ export default function Layout() {
         {/* Monitor global de Transbordo Automático de Interfone + Registro de Push do Watchdog para Portaria/Síndico/Admin */}
         {usuario.perfil !== 'morador' && (
           <MonitorTransbordoPortaria condominioId={usuario.condominio_id ?? null} />
+        )}
+
+        {/* Tela global de Alarme da Lista de Restrição Facial (Portaria, Admin/Supervisor e Síndico) */}
+        {usuario.perfil !== 'morador' && usuario.modulo_seguranca_facial && usuario.condominio_id && (
+          <MonitorAlarmesRestricao condominioId={usuario.condominio_id} />
         )}
 
         {/* Área de conteúdo */}
@@ -644,8 +881,10 @@ export default function Layout() {
               </p>
             </div>
           ) : (
-            <LimiteErro chave={location.pathname}>
-              <Outlet />
+            <LimiteErro chave={`${location.pathname}:${usuario.condominio_id ?? 'geral'}`}>
+              <div key={`${location.pathname}:${usuario.condominio_id ?? 'geral'}`} className="contents">
+                <Outlet />
+              </div>
             </LimiteErro>
           )}
         </div>

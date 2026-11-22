@@ -137,6 +137,18 @@ export function sincronizarSessaoComAppNativo(token: string | null, usuario: unk
   }
 }
 
+/** Limpa a sessão nativa (Android GuardService / iOS CallKit PushKit) ao sair explicitamente da conta. */
+export function limparSessaoAppNativo(): void {
+  if (typeof window === 'undefined' || !window.SectrumAndroid) return;
+  try {
+    window.SectrumAndroid.pararSireneNativa?.();
+    window.SectrumAndroid.pararToqueInterfoneNativo?.();
+    window.SectrumAndroid.limparSessaoNativa?.();
+  } catch {
+    // Ignora falhas na ponte nativa
+  }
+}
+
 /** Aciona a sirene nativa do Android no canal de ALARME (fura modo silencioso e Não Perturbe). */
 export function acionarSireneEmergenciaNativa(
   tipo: string,

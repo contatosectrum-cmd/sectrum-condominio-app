@@ -7,9 +7,27 @@ import { api, ErroApi } from '../lib/api';
 // cabeçalho (geral/temporada), dados pessoais, bloco/unidade (travados pelo link ou escolhidos), vínculo, check-in/out e
 // documento (temporada), veículo principal + 2º veículo (se o link permitir), selfie com guia de rosto e tela de sucesso.
 
+interface OcupacaoUnidade {
+  consultada: boolean;
+  limite_unidade: number;
+  origem_limite: string;
+  ocupadas_aprovadas: number;
+  ocupadas_pendentes: number;
+  ocupadas_total: number;
+  vagas_disponiveis: number;
+  lotada: boolean;
+}
+
+interface BlocoLink {
+  id: number;
+  nome: string;
+  unidades?: string[];
+}
+
 interface Link {
   condominio: string; perfil: string; tipo: string; unidade_info: string | null;
-  permite_segundo: boolean; app_habilitado: boolean; blocos: { id: number; nome: string }[];
+  permite_segundo: boolean; limite_padrao_vagas?: number; ocupacao_unidade?: OcupacaoUnidade | null;
+  app_habilitado: boolean; blocos: BlocoLink[];
 }
 
 const VAZIO = {
@@ -30,19 +48,41 @@ const mascaraCpf = (v: string) => {
   return d;
 };
 
+const mascaraTelefone = (v: string) => {
+  const d = v.replace(/\D/g, '').slice(0, 11);
+  if (d.length <= 2) return d;
+  if (d.length <= 7) return `(${d.slice(0, 2)}) ${d.slice(2)}`;
+  return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+};
+
 export default function PreCadastroExterno() {
   const [params] = useSearchParams();
   const token = params.get('t') ?? '';
   const [link, setLink] = useState<Link | null>(null);
   const [erroLink, setErroLink] = useState('');
-  const [f, setF] = useState(VAZIO);
+  const [f, setF] = useState(() => {
+    const relParam = params.get('rel') ?? '';
+    const relValido = ['Titular', 'Conjuge', 'Inquilino', 'Dependente'].includes(relParam) ? relParam : 'Titular';
+    const bParam = (params.get('b') ?? '').replace(/\D/g, '');
+    const uParam = (params.get('u') ?? '').trim();
+    return {
+      ...VAZIO,
+      relacao: relValido,
+      bloco_id: bParam,
+      unidade_numero: uParam,
+    };
+  });
   const [v2, setV2] = useState(false);
+  const [ocupacaoUnidade, setOcupacaoUnidade] = useState<OcupacaoUnidade | null>(null);
+  const [consultandoVagas, setConsultandoVagas] = useState(false);
   const [foto, setFoto] = useState('');
   const [doc, setDoc] = useState('');
   const [camera, setCamera] = useState(false);
   const [erro, setErro] = useState('');
+  const [avisoAuto, setAvisoAuto] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [sucesso, setSucesso] = useState<{ cpf: string; app: boolean } | null>(null);
+  const ultimoCpfBuscadoRef = useRef('');
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const docRef = useRef<HTMLInputElement>(null);
@@ -50,13 +90,103 @@ export default function PreCadastroExterno() {
   useEffect(() => {
     if (!token) { setErroLink('Link inválido ou ausente.'); return; }
     api<{ link: Link }>('precadastro_link', { query: { t: token } })
-      .then((r) => { setLink(r.link); document.title = `Pré-cadastro — ${r.link.condominio}`; })
+      .then((r) => {
+        setLink(r.link);
+        if (r.link.ocupacao_unidade) {
+          setOcupacaoUnidade(r.link.ocupacao_unidade);
+        }
+        document.title = `Pré-cadastro — ${r.link.condominio}`;
+      })
       .catch((e) => setErroLink(e instanceof ErroApi ? e.message : 'Este link expirou ou é inválido. Solicite um novo ao síndico.'));
     return () => streamRef.current?.getTracks().forEach((t) => t.stop());
   }, [token]);
 
+  useEffect(() => {
+    if (!link || link.unidade_info) return;
+    const bloco = f.bloco_id.trim();
+    const unid = f.unidade_numero.trim();
+    if (!bloco || !unid) {
+      setOcupacaoUnidade(null);
+      setConsultandoVagas(false);
+      return;
+    }
+    let ativo = true;
+    setConsultandoVagas(true);
+    const timer = window.setTimeout(() => {
+      api<{ ocupacao: OcupacaoUnidade }>('precadastro_vagas_unidade', {
+        query: { t: token, bloco_id: bloco, unidade_numero: unid },
+      })
+        .then((r) => {
+          if (!ativo) return;
+          setOcupacaoUnidade(r.ocupacao);
+          if (r.ocupacao.vagas_disponiveis <= 0) {
+            setV2(false);
+            setF((prev) => ({
+              ...prev,
+              placa1: '', vaga_garagem1: '', marca1: '', modelo1: '', cor1: '',
+              placa2: '', vaga_garagem2: '', marca2: '', modelo2: '', cor2: '',
+            }));
+          } else if (r.ocupacao.vagas_disponiveis < 2) {
+            setV2(false);
+            setF((prev) => ({
+              ...prev,
+              placa2: '', vaga_garagem2: '', marca2: '', modelo2: '', cor2: '',
+            }));
+          }
+        })
+        .catch(() => {
+          if (ativo) setOcupacaoUnidade(null);
+        })
+        .finally(() => {
+          if (ativo) setConsultandoVagas(false);
+        });
+    }, 350);
+    return () => {
+      ativo = false;
+      window.clearTimeout(timer);
+    };
+  }, [token, link, f.bloco_id, f.unidade_numero]);
+
   const muda = (k: keyof typeof VAZIO) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF({ ...f, [k]: e.target.value });
   const temporada = link?.tipo === 'temporada';
+
+  // Autopreenchimento inteligente ao digitar os 11 digitos do CPF
+  useEffect(() => {
+    if (!link || temporada) return;
+    const cpfDigitos = f.cpf.replace(/\D/g, '');
+    if (cpfDigitos.length !== 11 || cpfDigitos === ultimoCpfBuscadoRef.current) return;
+    ultimoCpfBuscadoRef.current = cpfDigitos;
+
+    api<{
+      encontrado: boolean;
+      nome?: string;
+      bloco_id?: number | null;
+      unidade_numero?: string;
+      telefone?: string;
+      multiplas_unidades?: boolean;
+    }>('precadastro_sugerir_cpf', {
+      query: { t: token, cpf: cpfDigitos, bloco_id: f.bloco_id || 0 },
+    })
+      .then((res) => {
+        if (!res.encontrado) {
+          setAvisoAuto('');
+          return;
+        }
+        setF((prev) => ({
+          ...prev,
+          nome: prev.nome.trim() || res.nome || '',
+          bloco_id: prev.bloco_id || (res.bloco_id ? String(res.bloco_id) : ''),
+          unidade_numero: prev.unidade_numero.trim() || res.unidade_numero || '',
+          telefone: prev.telefone.trim() || (res.telefone ? mascaraTelefone(res.telefone) : ''),
+        }));
+        setAvisoAuto(
+          res.multiplas_unidades
+            ? '✨ Pré-registro localizado! Como há mais de uma unidade no seu CPF, confira o Bloco/Apartamento abaixo, valide seu WhatsApp e tire sua selfie facial.'
+            : '✨ Pré-registro localizado! Confira se seu WhatsApp, vínculo e apartamento estão atualizados e tire sua selfie facial abaixo.',
+        );
+      })
+      .catch(() => {});
+  }, [f.cpf, f.bloco_id, link, temporada, token]);
 
   useEffect(() => {
     if (camera && videoRef.current && streamRef.current) {
@@ -134,9 +264,18 @@ export default function PreCadastroExterno() {
     e.preventDefault();
     setEnviando(true);
     setErro('');
+    const semVaga1 = ocupacaoUnidade !== null && ocupacaoUnidade.vagas_disponiveis <= 0;
+    const semVaga2 = !v2 || (ocupacaoUnidade !== null && ocupacaoUnidade.vagas_disponiveis < 2);
     try {
       const r = await api<{ cpf: string; app_habilitado: boolean }>('precadastro_enviar', {
-        corpo: { t: token, ...f, ...(v2 ? {} : { placa2: '', marca2: '', modelo2: '', cor2: '', vaga_garagem2: '' }), foto_base64: foto, doc_base64: doc },
+        corpo: {
+          t: token,
+          ...f,
+          ...(semVaga1 ? { placa1: '', marca1: '', modelo1: '', cor1: '', vaga_garagem1: '' } : {}),
+          ...(semVaga2 ? { placa2: '', marca2: '', modelo2: '', cor2: '', vaga_garagem2: '' } : {}),
+          foto_base64: foto,
+          doc_base64: doc,
+        },
       });
       setSucesso({ cpf: r.cpf, app: r.app_habilitado });
       window.scrollTo({ top: 0 });
@@ -188,7 +327,7 @@ export default function PreCadastroExterno() {
             </>
           ) : (
             <div className="flex gap-3.5"><span className="shrink-0 w-7 h-7 bg-violet-100 text-violet-500 rounded-full flex items-center justify-center">✔️</span>
-              <div><b className="text-slate-800 block mb-1">Aguarde a Análise da Administração</b><span className="text-slate-500 text-sm leading-relaxed">O seu cadastro foi enviado para a administração do condomínio. Após a análise e aprovação, a sua biometria facial será ativada automaticamente na portaria e você receberá as instruções de acesso.</span></div></div>
+              <div><b className="text-slate-800 block mb-1">Aguarde a Aprovação da Administração</b><span className="text-slate-500 text-sm leading-relaxed">O seu cadastro foi enviado para a administração do condomínio. Assim que for aprovado, você receberá uma notificação no WhatsApp avisando que sua biometria facial já foi liberada e que você já pode testar sua face nos leitores de controle de acesso da portaria!</span></div></div>
           )}
         </div>
         <a
@@ -203,10 +342,31 @@ export default function PreCadastroExterno() {
           Toque acima para ativar o aviso automático de liberação e ramal no seu WhatsApp.
         </p>
         {sucesso.app && (
-          <>
-            <a href="/login" className={`${btn} bg-blue-600 text-white mt-3 shadow-lg`}>📱 Baixar / Acessar Aplicativo</a>
-            <p className="text-slate-400 text-sm mt-4 text-center">Para baixar, toque no botão acima e adicione a tela de login à sua Tela Inicial do celular.</p>
-          </>
+          <div className="mt-4 space-y-2.5">
+            <a
+              href="https://play.google.com/store/apps/details?id=br.seg.vps.cond.sectrum"
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`${btn} bg-slate-900 hover:bg-slate-800 text-white shadow-md`}
+            >
+              🤖 Baixar no Google Play (Android)
+            </a>
+            <a
+              href="https://apps.apple.com/app/sectrum-condominio/id6826756502"
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`${btn} bg-blue-600 hover:bg-blue-700 text-white shadow-md`}
+            >
+              🍎 Baixar na App Store (iPhone)
+            </a>
+            <p className="text-slate-400 text-xs mt-2 text-center">
+              Instale o aplicativo oficial na loja do seu celular ou acesse pelo portal em{' '}
+              <a href="/login" className="text-blue-600 font-semibold underline">
+                cond.vps.seg.br
+              </a>
+              .
+            </p>
+          </div>
         )}
       </div>,
     );
@@ -224,26 +384,110 @@ export default function PreCadastroExterno() {
       </div>
       <div className="px-6 pt-6 pb-8">
         {erro && <div className="bg-red-50 text-red-600 border border-red-300 p-3.5 rounded-xl text-sm font-semibold mb-5">⚠️ {erro}</div>}
+        {avisoAuto && <div className="bg-emerald-50 text-emerald-800 border border-emerald-300 p-3.5 rounded-xl text-xs sm:text-sm font-semibold mb-5 leading-snug">{avisoAuto}</div>}
         <form onSubmit={enviar}>
           <div className="mb-6">
-            <div className={sec}>👤 Dados Pessoais</div>
-            <div className="flex flex-col gap-1.5 mb-3.5"><label className={lbl}>Nome Completo *</label><input required value={f.nome} onChange={muda('nome')} placeholder="Seu nome completo" className={inp} /></div>
+            <div className={sec}>👤 Dados Pessoais e Unidade</div>
             <div className="grid grid-cols-2 gap-3">
-              <div className="flex flex-col gap-1.5 mb-3.5"><label className={lbl}>CPF *</label><input required value={f.cpf} onChange={(e) => setF({ ...f, cpf: mascaraCpf(e.target.value) })} placeholder="000.000.000-00" maxLength={14} inputMode="numeric" className={inp} /></div>
-              <div className="flex flex-col gap-1.5 mb-3.5"><label className={lbl}>WhatsApp</label><input value={f.telefone} onChange={muda('telefone')} placeholder="(00) 00000-0000" className={inp} /></div>
+              <div className="flex flex-col gap-1.5 mb-3.5">
+                <label className={lbl}>CPF *</label>
+                <input
+                  required
+                  value={f.cpf}
+                  onChange={(e) => setF({ ...f, cpf: mascaraCpf(e.target.value) })}
+                  placeholder="000.000.000-00"
+                  maxLength={14}
+                  inputMode="numeric"
+                  className={inp}
+                />
+              </div>
+              <div className="flex flex-col gap-1.5 mb-3.5">
+                <label className={lbl}>WhatsApp Atual *</label>
+                <input
+                  required
+                  value={f.telefone}
+                  onChange={(e) => setF({ ...f, telefone: mascaraTelefone(e.target.value) })}
+                  placeholder="(98) 98888-8888"
+                  inputMode="tel"
+                  className={inp}
+                />
+              </div>
+            </div>
+            <div className="flex flex-col gap-1.5 mb-3.5">
+              <label className={lbl}>Nome Completo *</label>
+              <input required value={f.nome} onChange={muda('nome')} placeholder="Seu nome completo" className={inp} />
             </div>
             {link.unidade_info ? (
               <div className="flex flex-col gap-1.5 mb-3.5"><label className={lbl}>Bloco / Unidade</label><input readOnly value={link.unidade_info} className={`${inp} !bg-sky-100 !border-sky-300 !text-sky-700 font-semibold`} /></div>
             ) : (
-              <div className="grid grid-cols-2 gap-3">
-                <div className="flex flex-col gap-1.5 mb-3.5"><label className={lbl}>Bloco Pertencente *</label>
-                  <select required value={f.bloco_id} onChange={muda('bloco_id')} className={inp}><option value="">Selecione a torre...</option>{link.blocos.map((b) => <option key={b.id} value={b.id}>{b.nome}</option>)}</select></div>
-                <div className="flex flex-col gap-1.5 mb-3.5"><label className={lbl}>Número / Identificação *</label><input required value={f.unidade_numero} onChange={muda('unidade_numero')} placeholder="Ex: 101, 204B..." className={inp} /></div>
-              </div>
+              (() => {
+                const blocoSel = link.blocos.find((b) => String(b.id) === String(f.bloco_id));
+                const unidadesBloco = blocoSel?.unidades ?? [];
+                return (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="flex flex-col gap-1.5 mb-3.5">
+                      <label className={lbl}>Bloco / Rua *</label>
+                      <select
+                        required
+                        value={f.bloco_id}
+                        onChange={(e) => {
+                          const novoBlocoId = e.target.value;
+                          const novoBloco = link.blocos.find((b) => String(b.id) === novoBlocoId);
+                          const listaU = novoBloco?.unidades ?? [];
+                          setF((prev) => ({
+                            ...prev,
+                            bloco_id: novoBlocoId,
+                            unidade_numero:
+                              listaU.length > 0 && !listaU.includes(prev.unidade_numero) ? '' : prev.unidade_numero,
+                          }));
+                        }}
+                        className={inp}
+                      >
+                        <option value="">Selecione o bloco...</option>
+                        {link.blocos.map((b) => (
+                          <option key={b.id} value={b.id}>
+                            {b.nome}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex flex-col gap-1.5 mb-3.5">
+                      <label className={lbl}>Apartamento / Unidade *</label>
+                      {unidadesBloco.length > 0 ? (
+                        <select required value={f.unidade_numero} onChange={muda('unidade_numero')} className={inp}>
+                          <option value="">Selecione o apto...</option>
+                          {unidadesBloco.map((un) => (
+                            <option key={un} value={un}>
+                              Apto {un}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          required
+                          value={f.unidade_numero}
+                          onChange={muda('unidade_numero')}
+                          placeholder={f.bloco_id ? 'Ex: 101, 204...' : 'Escolha o bloco primeiro'}
+                          className={inp}
+                        />
+                      )}
+                    </div>
+                  </div>
+                );
+              })()
             )}
-            <div className="flex flex-col gap-1.5 mb-3.5"><label className={lbl}>Vínculo</label>
+            <div className="flex flex-col gap-1.5 mb-3.5"><label className={lbl}>Vínculo com o Imóvel</label>
               <select value={temporada ? 'Temporada' : f.relacao} onChange={muda('relacao')} className={inp}>
-                {temporada ? <option value="Temporada">Inquilino de Temporada</option> : <><option value="Titular">Proprietário / Titular</option><option value="Inquilino">Inquilino</option><option value="Dependente">Dependente</option></>}
+                {temporada ? (
+                  <option value="Temporada">Inquilino de Temporada</option>
+                ) : (
+                  <>
+                    <option value="Titular">Proprietário(a) / Titular</option>
+                    <option value="Conjuge">Cônjuge / Esposo(a)</option>
+                    <option value="Inquilino">Inquilino(a)</option>
+                    <option value="Dependente">Filho(a) / Dependente</option>
+                  </>
+                )}
               </select></div>
             {temporada && (
               <div className="grid grid-cols-2 gap-3">
@@ -253,39 +497,106 @@ export default function PreCadastroExterno() {
             )}
           </div>
 
-          {temporada && (
+          {(temporada || f.relacao === 'Inquilino') && (
             <div className="mb-6">
-              <div className={sec}>🪪 Documento (CNH ou RG)</div>
-              <p className="text-sm text-slate-500 mb-3.5">Fotografe ou faça upload do seu documento de identificação (frente).</p>
-              <input ref={docRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={lerDocumento} />
+              <div className={sec}>
+                {temporada ? '🪪 Documento (CNH ou RG)' : '📎 Contrato de Locação ou Autorização (Opcional agora)'}
+              </div>
+              <p className="text-sm text-slate-500 mb-3.5">
+                {temporada
+                  ? 'Fotografe ou faça upload do seu documento de identificação (frente).'
+                  : 'Anexe foto ou PDF do Contrato de Locação (ou autorização do proprietário). Se preferir, você também pode enviar pelo WhatsApp logo após concluir este cadastro!'}
+              </p>
+              <input ref={docRef} type="file" accept="image/*,application/pdf" className="hidden" onChange={lerDocumento} />
               {doc ? (
-                <><img src={doc} alt="Documento" className="w-full max-w-[340px] mx-auto mb-3.5 rounded-xl border-2 border-cyan-600" />
-                  <button type="button" onClick={() => setDoc('')} className={`${btn} bg-slate-900 text-white mb-3.5`}>🔄 Refazer Documento</button></>
+                <>
+                  {doc.startsWith('data:application/pdf') ? (
+                    <div className="w-full max-w-[340px] mx-auto mb-3.5 p-4 rounded-xl border-2 border-emerald-500 bg-emerald-50 text-emerald-800 text-sm font-bold text-center">
+                      📄 PDF anexado com sucesso!
+                    </div>
+                  ) : (
+                    <img src={doc} alt="Documento" className="w-full max-w-[340px] mx-auto mb-3.5 rounded-xl border-2 border-cyan-600" />
+                  )}
+                  <button type="button" onClick={() => setDoc('')} className={`${btn} bg-slate-900 text-white mb-3.5`}>🔄 Trocar Documento</button>
+                </>
               ) : (
-                <><button type="button" onClick={() => { docRef.current?.setAttribute('capture', 'environment'); docRef.current?.click(); }} className={`${btn} bg-cyan-600 text-white mb-2.5`}>📷 Fotografar Documento</button>
-                  <button type="button" onClick={() => { docRef.current?.removeAttribute('capture'); docRef.current?.click(); }} className={`${btn} bg-slate-100 text-slate-700`}>📁 Escolher da Galeria</button></>
+                <>
+                  <button type="button" onClick={() => { docRef.current?.setAttribute('capture', 'environment'); docRef.current?.click(); }} className={`${btn} bg-cyan-600 text-white mb-2.5`}>📷 Fotografar Documento / Contrato</button>
+                  <button type="button" onClick={() => { docRef.current?.removeAttribute('capture'); docRef.current?.click(); }} className={`${btn} bg-slate-100 text-slate-700`}>📁 Anexar PDF ou Foto da Galeria</button>
+                </>
               )}
             </div>
           )}
 
-          {([1, 2] as const).map((n) => (n === 1 || v2) && (
-            <div key={n} className="mb-6">
-              <div className={sec}>🚗 {n === 1 ? 'Veículo Principal' : '2º Veículo'}</div>
-              <div className="grid grid-cols-3 gap-2.5">
-                <div className="flex flex-col gap-1.5 mb-3.5"><label className={lbl}>Tipo</label><select value={f[`tipo_veiculo${n}`]} onChange={muda(`tipo_veiculo${n}`)} className={`${inp} !px-1.5`}><option value="Carro">🚗 Carro</option><option value="Moto">🏍️ Moto</option></select></div>
-                <div className="flex flex-col gap-1.5 mb-3.5"><label className={lbl}>Placa</label><input value={f[`placa${n}`]} onChange={muda(`placa${n}`)} placeholder="ABC1D23" maxLength={8} className={`${inp} uppercase font-mono font-bold tracking-wide`} /></div>
-                <div className="flex flex-col gap-1.5 mb-3.5"><label className={lbl}>Vaga</label><input value={f[`vaga_garagem${n}`]} onChange={muda(`vaga_garagem${n}`)} placeholder={n === 1 ? 'Ex: 42-A' : 'Ex: 43-B'} className={inp} /></div>
-              </div>
-              <div className="grid grid-cols-3 gap-2.5">
-                <div className="flex flex-col gap-1.5 mb-3.5"><label className={lbl}>Marca</label><input value={f[`marca${n}`]} onChange={muda(`marca${n}`)} placeholder={n === 1 ? 'Ex: Fiat' : 'Ex: VW'} className={inp} /></div>
-                <div className="flex flex-col gap-1.5 mb-3.5"><label className={lbl}>Modelo</label><input value={f[`modelo${n}`]} onChange={muda(`modelo${n}`)} placeholder={n === 1 ? 'Ex: Toro' : 'Ex: Gol'} className={inp} /></div>
-                <div className="flex flex-col gap-1.5 mb-3.5"><label className={lbl}>Cor</label><input value={f[`cor${n}`]} onChange={muda(`cor${n}`)} placeholder={n === 1 ? 'Branca' : 'Prata'} className={inp} /></div>
-              </div>
-            </div>
-          ))}
-          {link.permite_segundo
-            ? <button type="button" onClick={() => setV2(!v2)} className="w-full border-2 border-dashed border-slate-300 text-slate-500 rounded-xl p-2.5 text-sm font-semibold mb-3.5 hover:border-blue-600 hover:text-blue-600">{v2 ? '− Remover 2º Veículo' : '+ Adicionar 2º Veículo (opcional)'}</button>
-            : <p className="text-xs text-slate-500 text-center mb-6">O limite configurado pelo condomínio é de 1 veículo.</p>}
+          {(() => {
+            const limPadrao = link.limite_padrao_vagas ?? (link.permite_segundo ? 2 : 1);
+            const limUnidade = ocupacaoUnidade ? ocupacaoUnidade.limite_unidade : limPadrao;
+            const vagasDisp = ocupacaoUnidade ? ocupacaoUnidade.vagas_disponiveis : limUnidade;
+            const podeSegundo = (link.permite_segundo || limUnidade >= 2) && vagasDisp >= 2;
+
+            if (limUnidade <= 0) {
+              return (
+                <div className="mb-6 bg-slate-50 border border-slate-200 rounded-2xl p-4 text-center">
+                  <div className="text-sm font-bold text-slate-700 mb-1">🚗 Cadastro de Veículos pela Administração</div>
+                  <p className="text-xs text-slate-500">Para esta unidade, o controle de vagas de garagem é realizado diretamente pela administração do condomínio.</p>
+                </div>
+              );
+            }
+
+            if (ocupacaoUnidade?.consultada && vagasDisp <= 0) {
+              return (
+                <div className="mb-6 bg-amber-50 border-2 border-amber-300 rounded-2xl p-4">
+                  <div className="flex items-center gap-2 font-extrabold text-amber-900 text-sm mb-1.5">
+                    <span>🚗 Vaga de Garagem da Unidade Já Preenchida ({ocupacaoUnidade.ocupadas_total} de {ocupacaoUnidade.limite_unidade})</span>
+                  </div>
+                  <p className="text-xs text-amber-800 leading-relaxed">
+                    Esta unidade já possui <b>{ocupacaoUnidade.ocupadas_total} veículo(s)</b> {ocupacaoUnidade.ocupadas_aprovadas > 0 && ocupacaoUnidade.ocupadas_pendentes > 0 ? 'cadastrado(s)/em análise' : ocupacaoUnidade.ocupadas_pendentes > 0 ? 'em análise na administração' : 'cadastrado(s)'}, atingindo o limite de <b>{ocupacaoUnidade.limite_unidade} vaga(s)</b> por unidade.
+                  </p>
+                  <p className="text-xs text-amber-900 font-semibold mt-2 leading-relaxed">
+                    ✅ Você pode concluir seu cadastro pessoal e facial normalmente abaixo! Caso precise substituir o veículo da unidade futuramente, basta alterar pelo aplicativo ou solicitar à administração.
+                  </p>
+                </div>
+              );
+            }
+
+            return (
+              <>
+                {consultandoVagas && (
+                  <div className="text-xs text-blue-600 font-semibold mb-2.5">🔄 Verificando disponibilidade de vagas desta unidade...</div>
+                )}
+                {!consultandoVagas && ocupacaoUnidade?.consultada && (
+                  <div className={`mb-3.5 px-3.5 py-2.5 rounded-xl border text-xs font-semibold ${ocupacaoUnidade.ocupadas_total > 0 ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-emerald-50 border-emerald-200 text-emerald-800'}`}>
+                    {ocupacaoUnidade.ocupadas_total > 0
+                      ? `ℹ️ Esta unidade já possui ${ocupacaoUnidade.ocupadas_total} de ${ocupacaoUnidade.limite_unidade} vaga(s) preenchida(s). Resta ${vagasDisp} vaga disponível.`
+                      : `✓ Vaga disponível nesta unidade (0 de ${ocupacaoUnidade.limite_unidade} preenchida — preenchimento opcional).`}
+                  </div>
+                )}
+                {([1, 2] as const).map((n) => (n === 1 || (v2 && podeSegundo)) && (
+                  <div key={n} className="mb-6">
+                    <div className={sec}>🚗 {n === 1 ? 'Veículo Principal (Opcional)' : '2º Veículo (Opcional)'}</div>
+                    {n === 1 && (f.relacao === 'Dependente' || f.relacao === 'Conjuge') && (
+                      <p className="text-xs text-slate-500 -mt-2 mb-3">
+                        Preencha apenas se o veículo que ocupará a vaga da unidade ainda não tiver sido cadastrado por outro morador do apartamento.
+                      </p>
+                    )}
+                    <div className="grid grid-cols-3 gap-2.5">
+                      <div className="flex flex-col gap-1.5 mb-3.5"><label className={lbl}>Tipo</label><select value={f[`tipo_veiculo${n}`]} onChange={muda(`tipo_veiculo${n}`)} className={`${inp} !px-1.5`}><option value="Carro">🚗 Carro</option><option value="Moto">🏍️ Moto</option></select></div>
+                      <div className="flex flex-col gap-1.5 mb-3.5"><label className={lbl}>Placa</label><input value={f[`placa${n}`]} onChange={muda(`placa${n}`)} placeholder="ABC1D23" maxLength={8} className={`${inp} uppercase font-mono font-bold tracking-wide`} /></div>
+                      <div className="flex flex-col gap-1.5 mb-3.5"><label className={lbl}>Vaga</label><input value={f[`vaga_garagem${n}`]} onChange={muda(`vaga_garagem${n}`)} placeholder={n === 1 ? 'Ex: 42-A' : 'Ex: 43-B'} className={inp} /></div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2.5">
+                      <div className="flex flex-col gap-1.5 mb-3.5"><label className={lbl}>Marca</label><input value={f[`marca${n}`]} onChange={muda(`marca${n}`)} placeholder={n === 1 ? 'Ex: Fiat' : 'Ex: VW'} className={inp} /></div>
+                      <div className="flex flex-col gap-1.5 mb-3.5"><label className={lbl}>Modelo</label><input value={f[`modelo${n}`]} onChange={muda(`modelo${n}`)} placeholder={n === 1 ? 'Ex: Toro' : 'Ex: Gol'} className={inp} /></div>
+                      <div className="flex flex-col gap-1.5 mb-3.5"><label className={lbl}>Cor</label><input value={f[`cor${n}`]} onChange={muda(`cor${n}`)} placeholder={n === 1 ? 'Branca' : 'Prata'} className={inp} /></div>
+                    </div>
+                  </div>
+                ))}
+                {podeSegundo
+                  ? <button type="button" onClick={() => setV2(!v2)} className="w-full border-2 border-dashed border-slate-300 text-slate-500 rounded-xl p-2.5 text-sm font-semibold mb-5 hover:border-blue-600 hover:text-blue-600">{v2 ? '− Remover 2º Veículo' : '+ Adicionar 2º Veículo (opcional)'}</button>
+                  : <p className="text-xs text-slate-500 text-center mb-6">O limite configurado para esta unidade é de {limUnidade} veículo{limUnidade > 1 ? 's' : ''}.</p>}
+              </>
+            );
+          })()}
 
           <div className="mb-6">
             <div className={sec}>📷 Foto Facial (Reconhecimento)</div>

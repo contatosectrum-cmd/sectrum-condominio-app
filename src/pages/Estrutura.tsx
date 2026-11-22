@@ -1,11 +1,17 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Building2, Home, LayoutGrid, Save, Plus, X, Pencil, Sparkles, Cpu } from 'lucide-react';
+import {
+  Building2, Home, LayoutGrid, Save, Plus, X, Pencil, Sparkles, Cpu, ShieldCheck,
+  Eye, Percent, RefreshCw, Search,
+} from 'lucide-react';
 import { api, ErroApi } from '../lib/api';
+import ModalFichaUnidade360 from '../components/ModalFichaUnidade360';
 
 interface Bloco {
   id: number;
   nome: string;
   andares: number | null;
+  grupo_acesso_id?: number | null;
+  grupo_acesso_nome?: string | null;
   qtd_unidades?: number;
   qtd_moradores?: number;
   terminais_nomes?: string;
@@ -16,7 +22,28 @@ interface Unidade {
   tipo: string | null;
   bloco_id: number | null;
   bloco_nome: string | null;
+  limite_vagas?: number | null;
+  fracao_ideal?: number;
+  area_m2?: number | null;
+  proprietario_nome?: string;
+  proprietario_cpf?: string;
+  proprietario_telefone?: string;
+  proprietario_celular?: string;
+  proprietario_email?: string;
+  inquilino_nome?: string;
+  imobiliaria_nome?: string;
+  tipo_ocupacao?: 'proprietario' | 'alugado' | 'vazio' | string;
+  id_externo_superlogica?: number | null;
+  grupo_acesso_id?: number | null;
+  grupo_acesso_nome?: string | null;
   qtd_moradores?: number;
+  qtd_inquilinos_app?: number;
+  qtd_veiculos?: number;
+}
+interface GrupoAcesso {
+  id: number;
+  nome: string;
+  terminais_acesso?: string | null;
 }
 interface Aviso { tipo: 'ok' | 'erro'; mensagem: string }
 
@@ -28,9 +55,18 @@ const td = 'px-4 py-3 border-b border-slate-100 text-sm';
 export default function Estrutura() {
   const [blocos, setBlocos] = useState<Bloco[]>([]);
   const [unidades, setUnidades] = useState<Unidade[]>([]);
+  const [grupos, setGrupos] = useState<GrupoAcesso[]>([]);
+  const [limiteVagasCondominio, setLimiteVagasCondominio] = useState(2);
+  const [somaFracaoIdeal, setSomaFracaoIdeal] = useState(0);
   const [carregando, setCarregando] = useState(true);
   const [aviso, setAviso] = useState<Aviso | null>(null);
-  const [aba, setAba] = useState<'unidades' | 'blocos'>('blocos');
+  const [aba, setAba] = useState<'unidades' | 'blocos'>('unidades');
+
+  // Filtros rápidos da grade de Unidades
+  const [filtroBloco, setFiltroBloco] = useState('');
+  const [filtroOcupacao, setFiltroOcupacao] = useState<'todos' | 'proprietario' | 'alugado' | 'sem_titular'>('todos');
+  const [buscaTexto, setBuscaTexto] = useState('');
+  const [unidadeFicha360Id, setUnidadeFicha360Id] = useState<number | null>(null);
 
   // Criacao individual vs em lote (Letras A..Z ou Numeros 1..N)
   const [modoCriacaoBloco, setModoCriacaoBloco] = useState<'unico' | 'lote'>('unico');
@@ -44,17 +80,28 @@ export default function Estrutura() {
 
   // Edicao inline de Bloco e Unidade
   const [editBloco, setEditBloco] = useState<{ id: number; nome: string; andares: string } | null>(null);
-  const [editUnidade, setEditUnidade] = useState<{ id: number; bloco_id: string; numero: string } | null>(null);
+  const [editUnidade, setEditUnidade] = useState<{ id: number; bloco_id: string; numero: string; grupo_acesso_id: string; limite_vagas: string } | null>(null);
 
   const [blocoUnidade, setBlocoUnidade] = useState('');
   const [numero, setNumero] = useState('');
+  const [grupoUnidade, setGrupoUnidade] = useState('');
+  const [limiteVagasUnidade, setLimiteVagasUnidade] = useState('');
   const [enviando, setEnviando] = useState(false);
 
   const carregar = useCallback(async () => {
     try {
-      const r = await api<{ blocos: Bloco[]; unidades: Unidade[] }>('listar_estrutura');
+      const r = await api<{
+        limite_vagas_condominio?: number;
+        soma_fracao_ideal?: number;
+        blocos: Bloco[];
+        unidades: Unidade[];
+        grupos_acesso?: GrupoAcesso[];
+      }>('listar_estrutura');
       setBlocos(r.blocos);
       setUnidades(r.unidades);
+      setGrupos(r.grupos_acesso || []);
+      setLimiteVagasCondominio(r.limite_vagas_condominio ?? 2);
+      setSomaFracaoIdeal(r.soma_fracao_ideal ?? 0);
     } catch (e) {
       setAviso({ tipo: 'erro', mensagem: e instanceof ErroApi ? e.message : 'Erro ao carregar a estrutura.' });
     } finally {
@@ -107,7 +154,20 @@ export default function Estrutura() {
 
   const salvarUnidade = (e: React.FormEvent) => {
     e.preventDefault();
-    executar('estrutura_unidade', { bloco_id: blocoUnidade, numero }, () => setNumero(''));
+    executar(
+      'estrutura_unidade',
+      {
+        bloco_id: blocoUnidade,
+        numero,
+        grupo_acesso_id: grupoUnidade ? Number(grupoUnidade) : '',
+        limite_vagas: limiteVagasUnidade,
+      },
+      () => {
+        setNumero('');
+        setGrupoUnidade('');
+        setLimiteVagasUnidade('');
+      }
+    );
   };
 
   const salvarEdicaoUnidade = (e: React.FormEvent) => {
@@ -117,6 +177,8 @@ export default function Estrutura() {
       id: editUnidade.id,
       bloco_id: Number(editUnidade.bloco_id),
       numero: editUnidade.numero,
+      grupo_acesso_id: editUnidade.grupo_acesso_id ? Number(editUnidade.grupo_acesso_id) : '',
+      limite_vagas: editUnidade.limite_vagas,
     }, () => setEditUnidade(null));
   };
 
@@ -249,37 +311,198 @@ export default function Estrutura() {
         </div>
 
         <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-          <div className="flex items-center gap-2.5 text-lg font-extrabold text-slate-900 mb-5">
-            <span className="bg-emerald-100 text-emerald-600 p-2 rounded-xl"><Home size={18} /></span> Cadastrar Unidade (Apto/Casa)
+          <div className="flex items-center gap-2.5 text-lg font-extrabold text-slate-900 mb-1">
+            <span className="bg-emerald-100 text-emerald-600 p-2 rounded-xl"><Home size={18} /></span>
+            Cadastrar Unidade (Apto / Casa)
           </div>
+          <p className="text-xs text-slate-500 mb-4">
+            Vincule a unidade ao Bloco/Torre e defina opcionalmente o <b>Grupo de Acesso Padrão (Pré-Autorização)</b> e o limite de vagas.
+          </p>
           <form onSubmit={salvarUnidade}>
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <label className={rotulo}>Bloco Pertencente *</label>
                 <select required value={blocoUnidade} onChange={(e) => setBlocoUnidade(e.target.value)} className={entrada}>
-                  <option value="">Selecione a torre...</option>
+                  <option value="">Selecione a torre/bloco...</option>
                   {blocos.map((b) => <option key={b.id} value={b.id}>{b.nome}</option>)}
                 </select>
               </div>
-              <div><label className={rotulo}>Número / Identificação *</label><input required value={numero} onChange={(e) => setNumero(e.target.value)} placeholder="Ex: 101, 204B..." className={entrada} /></div>
+              <div>
+                <label className={rotulo}>Número / Identificação *</label>
+                <input required value={numero} onChange={(e) => setNumero(e.target.value)} placeholder="Ex: 101, 204B, Casa 05..." className={entrada} />
+              </div>
+              <div>
+                <label className={rotulo}>Pré-Autorização Padrão (Grupo de Acesso)</label>
+                <select value={grupoUnidade} onChange={(e) => setGrupoUnidade(e.target.value)} className={entrada}>
+                  <option value="">— Padrão do Bloco/Portaria (ou definir depois) —</option>
+                  {grupos.map((g) => (
+                    <option key={g.id} value={g.id}>
+                      🔑 {g.nome}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className={rotulo}>Limite de Vagas da Unidade</label>
+                <select value={limiteVagasUnidade} onChange={(e) => setLimiteVagasUnidade(e.target.value)} className={entrada}>
+                  <option value="">🚗 Padrão do Condomínio ({limiteVagasCondominio} vaga{limiteVagasCondominio === 1 ? '' : 's'})</option>
+                  <option value="0">Sem vaga (0)</option>
+                  <option value="1">1 vaga</option>
+                  <option value="2">2 vagas</option>
+                  <option value="3">3 vagas</option>
+                  <option value="4">4 vagas</option>
+                  <option value="5">5 vagas</option>
+                </select>
+              </div>
             </div>
-            <button disabled={enviando} className="mt-5 inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold disabled:opacity-60"><Plus size={16} /> Salvar Unidade</button>
+            <button disabled={enviando} className="mt-4 inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold disabled:opacity-60">
+              <Plus size={16} /> Salvar Unidade
+            </button>
           </form>
         </div>
       </div>
 
       <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+        {/* PAINEL EXECUTIVO ERP: UNIDADES, FRAÇÃO IDEAL 100%, LOCAÇÕES E SINCRONIZAÇÃO */}
+        <div className="grid sm:grid-cols-4 gap-3 mb-5">
+          <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
+              <Home size={18} />
+            </div>
+            <div>
+              <div className="text-xl font-extrabold text-slate-900">{unidades.length}</div>
+              <div className="text-xs text-slate-500">Unidades em {blocos.length} blocos</div>
+            </div>
+          </div>
+
+          <div
+            className={`p-3.5 rounded-xl border flex items-center justify-between gap-2 ${
+              Math.abs(somaFracaoIdeal - 100) < 0.01
+                ? 'bg-emerald-50/70 border-emerald-200'
+                : 'bg-amber-50/80 border-amber-300'
+            }`}
+          >
+            <div className="flex items-center gap-2.5">
+              <div
+                className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                  Math.abs(somaFracaoIdeal - 100) < 0.01
+                    ? 'bg-emerald-100 text-emerald-700'
+                    : 'bg-amber-100 text-amber-700'
+                }`}
+              >
+                <Percent size={18} />
+              </div>
+              <div>
+                <div className="text-base font-extrabold text-slate-900">
+                  {somaFracaoIdeal.toFixed(4).replace('.', ',')}%
+                </div>
+                <div className="text-[11px] text-slate-600">
+                  {Math.abs(somaFracaoIdeal - 100) < 0.01 ? 'Soma de Frações OK (100%)' : 'Soma deve ser 100%'}
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              disabled={enviando || unidades.length === 0}
+              onClick={() => executar('estrutura_calcular_fracao_ideal', { modo: 'igualitario' })}
+              className="px-2.5 py-1.5 rounded-lg bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 text-[11px] font-extrabold shadow-2xs cursor-pointer shrink-0"
+              title="Distribuir 100% da fração ideal automaticamente entre todas as unidades"
+            >
+              Calcular 100%
+            </button>
+          </div>
+
+          <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0 font-extrabold text-sm">
+              🔑
+            </div>
+            <div>
+              <div className="text-xl font-extrabold text-slate-900">
+                {unidades.filter((x) => x.tipo_ocupacao === 'alugado' || (x.inquilino_nome && x.inquilino_nome.trim() !== '')).length}
+              </div>
+              <div className="text-xs text-slate-500">Unidades Alugadas (Inquilino)</div>
+            </div>
+          </div>
+
+          <div className="p-3.5 rounded-xl bg-indigo-50/70 border border-indigo-200 flex items-center justify-between gap-2">
+            <div>
+              <div className="text-xs font-extrabold text-indigo-950">Base Superlógica ERP</div>
+              <div className="text-[11px] text-indigo-700">
+                {unidades.filter((x) => x.proprietario_nome && x.proprietario_nome.trim() !== '').length} de {unidades.length} com titular
+              </div>
+            </div>
+            <button
+              type="button"
+              disabled={enviando}
+              onClick={() => {
+                if (
+                  window.confirm(
+                    'Deseja sincronizar os Titulares, Inquilinos, Telefones, E-mails e ajustar 100% da Fração Ideal das unidades com a base mapeada da Superlógica?',
+                  )
+                ) {
+                  void executar('estrutura_sincronizar_superlogica', {
+                    recalcular_fracao_100: true,
+                    atualizar_lista_oficial: true,
+                  });
+                }
+              }}
+              className="inline-flex items-center gap-1 px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold shadow-xs cursor-pointer shrink-0 disabled:opacity-50"
+            >
+              <RefreshCw size={13} /> Sincronizar Base
+            </button>
+          </div>
+        </div>
+
         <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
           <div className="flex items-center gap-2.5 text-lg font-extrabold text-slate-900">
-            <span className="bg-indigo-100 text-indigo-600 p-2 rounded-xl"><LayoutGrid size={18} /></span> Estrutura do Condomínio
+            <span className="bg-indigo-100 text-indigo-600 p-2 rounded-xl"><LayoutGrid size={18} /></span> Estrutura de Blocos &amp; Unidades
           </div>
           <span className="text-xs text-slate-500">
-            💡 Renomear um Bloco ou Unidade atualiza automaticamente todos os moradores e terminais vinculados (sem retrabalho).
+            💡 Clique em <b>Ficha 360º</b> em qualquer unidade para gerenciar Proprietário, Inquilino, Contratos, Veículos e Histórico.
           </span>
         </div>
-        <div className="flex gap-2.5 border-b border-slate-200 pb-3 mb-4 flex-wrap">
-          <button onClick={() => setAba('blocos')} className={abaBtn(aba === 'blocos')}><Building2 size={15} /> Blocos / Torres ({blocos.length})</button>
-          <button onClick={() => setAba('unidades')} className={abaBtn(aba === 'unidades')}><Home size={15} /> Unidades Cadastradas ({unidades.length})</button>
+
+        <div className="flex items-center justify-between gap-3 border-b border-slate-200 pb-3 mb-4 flex-wrap">
+          <div className="flex gap-2.5 flex-wrap">
+            <button onClick={() => setAba('unidades')} className={abaBtn(aba === 'unidades')}><Home size={15} /> Unidades ({unidades.length})</button>
+            <button onClick={() => setAba('blocos')} className={abaBtn(aba === 'blocos')}><Building2 size={15} /> Blocos / Torres ({blocos.length})</button>
+          </div>
+
+          {aba === 'unidades' && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="relative">
+                <Search size={14} className="absolute left-3 top-2.5 text-slate-400" />
+                <input
+                  value={buscaTexto}
+                  onChange={(e) => setBuscaTexto(e.target.value)}
+                  placeholder="Buscar apto, proprietário, inquilino, e-mail..."
+                  className="pl-8 pr-3 py-1.5 border border-slate-300 rounded-lg text-xs w-64 bg-white"
+                />
+              </div>
+              <select
+                value={filtroBloco}
+                onChange={(e) => setFiltroBloco(e.target.value)}
+                className="px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-semibold bg-white"
+              >
+                <option value="">Todos os Blocos ({blocos.length})</option>
+                {blocos.map((b) => (
+                  <option key={b.id} value={String(b.id)}>
+                    {b.nome}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={filtroOcupacao}
+                onChange={(e) => setFiltroOcupacao(e.target.value as typeof filtroOcupacao)}
+                className="px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-semibold bg-white"
+              >
+                <option value="todos">Todas as Ocupações</option>
+                <option value="proprietario">🏠 Somente Proprietário</option>
+                <option value="alugado">🔑 Somente Alugados (Inquilino)</option>
+                <option value="sem_titular">⚠️ Sem Titular Cadastrado</option>
+              </select>
+            </div>
+          )}
         </div>
 
         {carregando ? (
@@ -289,72 +512,218 @@ export default function Estrutura() {
             <table className="w-full">
               <thead>
                 <tr>
-                  <th className={th}>Bloco / Torre</th>
-                  <th className={th}>Número da Unidade</th>
-                  <th className={th}>Moradores</th>
+                  <th className={th}>Bloco / Unidade</th>
+                  <th className={th}>Proprietário (Titular) &amp; Inquilino</th>
+                  <th className={th}>Fração Ideal</th>
+                  <th className={th}>Pré-Autorização (Acesso)</th>
+                  <th className={th}>Vagas &amp; App</th>
                   <th className={`${th} text-right`}>Ações</th>
                 </tr>
               </thead>
               <tbody>
-                {unidades.map((u) => {
-                  const emEdicao = editUnidade?.id === u.id;
-                  return (
-                    <tr key={u.id} className="hover:bg-slate-50">
-                      <td className={`${td} font-semibold text-slate-700`}>
-                        {emEdicao ? (
-                          <select
-                            value={editUnidade.bloco_id}
-                            onChange={(e) => setEditUnidade({ ...editUnidade, bloco_id: e.target.value })}
-                            className="px-2.5 py-1.5 border border-blue-400 rounded-lg text-sm font-bold bg-white"
-                          >
-                            {blocos.map((b) => <option key={b.id} value={b.id}>{b.nome}</option>)}
-                          </select>
-                        ) : (
-                          u.bloco_nome ?? '—'
-                        )}
-                      </td>
-                      <td className={`${td} font-bold text-slate-900`}>
-                        {emEdicao ? (
-                          <input
-                            value={editUnidade.numero}
-                            onChange={(e) => setEditUnidade({ ...editUnidade, numero: e.target.value })}
-                            className="px-2.5 py-1.5 border border-blue-400 rounded-lg text-sm font-bold w-32"
-                          />
-                        ) : (
-                          u.numero
-                        )}
-                      </td>
-                      <td className={td}>
-                        <span className="bg-slate-100 text-slate-700 px-2.5 py-0.5 rounded-full text-xs font-bold">
-                          {u.qtd_moradores ?? 0} morador(es)
-                        </span>
-                      </td>
-                      <td className={`${td} text-right`}>
-                        <div className="inline-flex items-center gap-1.5">
+                {unidades
+                  .filter((u) => {
+                    if (filtroBloco && String(u.bloco_id) !== filtroBloco) return false;
+                    const ehAlugado = u.tipo_ocupacao === 'alugado' || Boolean(u.inquilino_nome && u.inquilino_nome.trim() !== '');
+                    if (filtroOcupacao === 'alugado' && !ehAlugado) return false;
+                    if (filtroOcupacao === 'proprietario' && ehAlugado) return false;
+                    if (filtroOcupacao === 'sem_titular' && u.proprietario_nome && u.proprietario_nome.trim() !== '') return false;
+                    if (buscaTexto.trim() !== '') {
+                      const q = buscaTexto.toLowerCase();
+                      const alvo = [
+                        u.bloco_nome,
+                        u.numero,
+                        u.proprietario_nome,
+                        u.inquilino_nome,
+                        u.proprietario_email,
+                        u.proprietario_celular,
+                        u.proprietario_cpf,
+                      ]
+                        .filter(Boolean)
+                        .join(' ')
+                        .toLowerCase();
+                      if (!alvo.includes(q)) return false;
+                    }
+                    return true;
+                  })
+                  .map((u) => {
+                    const emEdicao = editUnidade?.id === u.id;
+                    const ehAlugado = u.tipo_ocupacao === 'alugado' || Boolean(u.inquilino_nome && u.inquilino_nome.trim() !== '');
+                    return (
+                      <tr key={u.id} className="hover:bg-slate-50">
+                        <td className={`${td} font-semibold text-slate-700`}>
                           {emEdicao ? (
-                            <>
-                              <button type="button" disabled={enviando} onClick={salvarEdicaoUnidade} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-blue-600 text-white hover:bg-blue-700">Salvar</button>
-                              <button type="button" onClick={() => setEditUnidade(null)} className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-slate-100 text-slate-600">Cancelar</button>
-                            </>
+                            <div className="flex gap-1.5">
+                              <select
+                                value={editUnidade.bloco_id}
+                                onChange={(e) => setEditUnidade({ ...editUnidade, bloco_id: e.target.value })}
+                                className="px-2 py-1 border border-blue-400 rounded-lg text-xs font-bold bg-white"
+                              >
+                                {blocos.map((b) => <option key={b.id} value={b.id}>{b.nome}</option>)}
+                              </select>
+                              <input
+                                value={editUnidade.numero}
+                                onChange={(e) => setEditUnidade({ ...editUnidade, numero: e.target.value })}
+                                className="px-2 py-1 border border-blue-400 rounded-lg text-xs font-bold w-20"
+                              />
+                            </div>
                           ) : (
-                            <>
+                            <div>
                               <button
                                 type="button"
-                                disabled={enviando}
-                                onClick={() => setEditUnidade({ id: u.id, bloco_id: String(u.bloco_id ?? ''), numero: u.numero })}
-                                className={btnEditar}
+                                onClick={() => setUnidadeFicha360Id(u.id)}
+                                className="text-left group cursor-pointer"
                               >
-                                <Pencil size={12} /> Editar
+                                <span className="font-extrabold text-slate-900 group-hover:text-indigo-600 transition">
+                                  {u.numero}
+                                </span>{' '}
+                                <span className="text-xs font-bold text-slate-500">{u.bloco_nome ?? '—'}</span>
                               </button>
-                              <button disabled={enviando} onClick={() => excluirUnidade(u)} className={btnExcluir}>Excluir</button>
-                            </>
+                              <div className="mt-0.5">
+                                {ehAlugado ? (
+                                  <span className="inline-block px-2 py-0.2 rounded-full text-[10px] font-extrabold bg-amber-100 text-amber-800 border border-amber-200">
+                                    🔑 Alugado
+                                  </span>
+                                ) : (
+                                  <span className="inline-block px-2 py-0.2 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600">
+                                    🏠 Proprietário
+                                  </span>
+                                )}
+                              </div>
+                            </div>
                           )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-                {unidades.length === 0 && <tr><td colSpan={4} className="text-center text-slate-400 py-10">Nenhuma unidade registrada neste condomínio.</td></tr>}
+                        </td>
+
+                        <td className={td}>
+                          {u.proprietario_nome ? (
+                            <div className="space-y-0.5">
+                              <div className="text-xs font-extrabold text-slate-900">{u.proprietario_nome}</div>
+                              {u.inquilino_nome && (
+                                <div className="text-xs font-bold text-amber-800">
+                                  🔑 Inq.: {u.inquilino_nome}
+                                </div>
+                              )}
+                              <div className="text-[11px] text-slate-500 flex flex-wrap gap-x-2.5">
+                                {(u.proprietario_celular || u.proprietario_telefone) && (
+                                  <span>📞 {(u.proprietario_celular || u.proprietario_telefone || '').split(';')[0]}</span>
+                                )}
+                                {u.proprietario_email && (
+                                  <span className="truncate max-w-[200px]">✉️ {u.proprietario_email.split(';')[0]}</span>
+                                )}
+                              </div>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setUnidadeFicha360Id(u.id)}
+                              className="text-xs text-indigo-600 hover:underline font-semibold cursor-pointer"
+                            >
+                              + Informar Proprietário / Inquilino
+                            </button>
+                          )}
+                        </td>
+
+                        <td className={`${td} font-mono text-xs text-slate-600`}>
+                          {u.fracao_ideal && u.fracao_ideal > 0
+                            ? `${u.fracao_ideal.toFixed(6).replace('.', ',')}%`
+                            : '0,000000%'}
+                        </td>
+
+                        <td className={td}>
+                          {emEdicao ? (
+                            <select
+                              value={editUnidade.grupo_acesso_id}
+                              onChange={(e) => setEditUnidade({ ...editUnidade, grupo_acesso_id: e.target.value })}
+                              className="px-2.5 py-1.5 border border-blue-400 rounded-lg text-xs font-bold bg-white"
+                            >
+                              <option value="">— Padrão do Bloco —</option>
+                              {grupos.map((g) => (
+                                <option key={g.id} value={g.id}>
+                                  🔑 {g.nome}
+                                </option>
+                              ))}
+                            </select>
+                          ) : u.grupo_acesso_nome ? (
+                            <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-800 border border-emerald-200 px-2.5 py-1 rounded-lg text-xs font-extrabold">
+                              <ShieldCheck size={13} className="text-emerald-600" /> {u.grupo_acesso_nome}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-slate-400">Padrão do Bloco</span>
+                          )}
+                        </td>
+
+                        <td className={td}>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {emEdicao ? (
+                              <select
+                                value={editUnidade.limite_vagas}
+                                onChange={(e) => setEditUnidade({ ...editUnidade, limite_vagas: e.target.value })}
+                                className="px-2.5 py-1.5 border border-blue-400 rounded-lg text-xs font-bold bg-white"
+                              >
+                                <option value="">Padrão ({limiteVagasCondominio})</option>
+                                <option value="0">0 vagas</option>
+                                <option value="1">1 vaga</option>
+                                <option value="2">2 vagas</option>
+                                <option value="3">3 vagas</option>
+                                <option value="4">4 vagas</option>
+                                <option value="5">5 vagas</option>
+                              </select>
+                            ) : (() => {
+                              const limEfetivo = u.limite_vagas !== null && u.limite_vagas !== undefined ? Number(u.limite_vagas) : limiteVagasCondominio;
+                              const ocup = Number(u.qtd_veiculos ?? 0);
+                              return (
+                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold border ${ocup >= limEfetivo && limEfetivo > 0 ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-slate-50 text-slate-700 border-slate-200'}`}>
+                                  🚗 {ocup}/{limEfetivo}
+                                </span>
+                              );
+                            })()}
+                            <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full text-xs font-bold" title="Moradores cadastrados no App / Facial">
+                              📱 {u.qtd_moradores ?? 0}
+                            </span>
+                          </div>
+                        </td>
+
+                        <td className={`${td} text-right`}>
+                          <div className="inline-flex items-center gap-1.5">
+                            {emEdicao ? (
+                              <>
+                                <button type="button" disabled={enviando} onClick={salvarEdicaoUnidade} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-blue-600 text-white hover:bg-blue-700">Salvar</button>
+                                <button type="button" onClick={() => setEditUnidade(null)} className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-slate-100 text-slate-600">Cancelar</button>
+                              </>
+                            ) : (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => setUnidadeFicha360Id(u.id)}
+                                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-extrabold bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 cursor-pointer"
+                                >
+                                  <Eye size={13} /> Ficha 360º
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={enviando}
+                                  onClick={() =>
+                                    setEditUnidade({
+                                      id: u.id,
+                                      bloco_id: String(u.bloco_id ?? ''),
+                                      numero: u.numero,
+                                      grupo_acesso_id: u.grupo_acesso_id ? String(u.grupo_acesso_id) : '',
+                                      limite_vagas: u.limite_vagas !== null && u.limite_vagas !== undefined ? String(u.limite_vagas) : '',
+                                    })
+                                  }
+                                  className={btnEditar}
+                                >
+                                  <Pencil size={12} />
+                                </button>
+                                <button disabled={enviando} onClick={() => excluirUnidade(u)} className={btnExcluir}>Excluir</button>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                {unidades.length === 0 && <tr><td colSpan={6} className="text-center text-slate-400 py-10">Nenhuma unidade registrada neste condomínio.</td></tr>}
               </tbody>
             </table>
           </div>
@@ -451,6 +820,17 @@ export default function Estrutura() {
           </div>
         )}
       </div>
+
+      {unidadeFicha360Id !== null && (
+        <ModalFichaUnidade360
+          unidadeId={unidadeFicha360Id}
+          limiteVagasCondominio={limiteVagasCondominio}
+          onFechar={() => setUnidadeFicha360Id(null)}
+          onSalvo={() => {
+            void carregar();
+          }}
+        />
+      )}
     </div>
   );
 }

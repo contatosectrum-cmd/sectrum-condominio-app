@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
-import { Download, Share, PlusSquare, MoreVertical, Smartphone, X, CheckCircle2 } from 'lucide-react';
 import { entrar, useSessao } from '../lib/useSessao';
 import { inicioDoPerfil } from '../lib/menu';
 import { ErroApi } from '../lib/api';
@@ -8,24 +7,16 @@ import { entrarComBiometria, temBiometriaNoAparelho } from '../lib/webauthn';
 import { ehAppNativo } from '../lib/nativo';
 import type { Usuario } from '../lib/sessao';
 
-// Paridade visual e funcional 1:1 com src/views/login.php do sistema cond.vps.seg.br:
+// Paridade visual e funcional com o sistema cond.vps.seg.br:
 // - Split layout em tela cheia (side-brand escuro com foto de edifícios + escudo Sectrum e 4 features à esquerda;
 //   side-form branco de 460px à direita com "Bem-vindo de volta 👋");
 // - Login por CPF ou E-mail (lembrado em localStorage 'sectrum_cpf'), mostrar/ocultar senha, WebAuthn (Face ID / Digital),
-//   opção de instalação do PWA sempre visível no celular (Android com prompt nativo + iOS/Android com guia passo a passo) e rodapé com suporte via WhatsApp.
+//   links diretos para os aplicativos nativos oficiais (Google Play Android e App Store iOS) e rodapé com suporte via WhatsApp.
 const LINK_SUPORTE =
   'https://api.whatsapp.com/send?phone=5598985983566&text=Ol%C3%A1%2C%20preciso%20de%20ajuda%20para%20acessar%20o%20aplicativo.';
 
-interface BeforeInstallPromptEvent extends Event {
-  prompt: () => Promise<void>;
-  userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
-}
-
-declare global {
-  interface Window {
-    __deferredPwaPrompt?: BeforeInstallPromptEvent | null;
-  }
-}
+const LINK_GOOGLE_PLAY = 'https://play.google.com/store/apps/details?id=br.seg.vps.cond.sectrum';
+const LINK_APP_STORE_IOS = 'https://apps.apple.com/app/sectrum-condominio/id6826756502';
 
 function verificarAppInstalado(): boolean {
   if (typeof window === 'undefined') return false;
@@ -33,15 +24,6 @@ function verificarAppInstalado(): boolean {
   const standaloneMedia = window.matchMedia?.('(display-mode: standalone)').matches;
   const standaloneIos = Boolean((window.navigator as { standalone?: boolean }).standalone);
   return Boolean(standaloneMedia || standaloneIos);
-}
-
-function verificarCelular(): boolean {
-  if (typeof window === 'undefined') return false;
-  const ua = window.navigator.userAgent || '';
-  return (
-    /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile/i.test(ua) ||
-    window.innerWidth <= 900
-  );
 }
 
 function verificarIos(): boolean {
@@ -63,57 +45,20 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [bioDisponivel, setBioDisponivel] = useState(false);
   const [bioAguardando, setBioAguardando] = useState(false);
-  const [pwaPrompt, setPwaPrompt] = useState<BeforeInstallPromptEvent | null>(
-    () => (typeof window !== 'undefined' ? window.__deferredPwaPrompt ?? null : null),
-  );
   const [jaInstalado, setJaInstalado] = useState<boolean>(() => verificarAppInstalado());
-  const [ehMobile, setEhMobile] = useState<boolean>(() => verificarCelular());
   const [ehIos] = useState<boolean>(() => verificarIos());
-  const [bannerFechado, setBannerFechado] = useState(false);
-  const [modalGuiaPwa, setModalGuiaPwa] = useState(false);
   const navigate = useNavigate();
   const local = useLocation();
 
   useEffect(() => {
     temBiometriaNoAparelho().then(setBioDisponivel);
 
-    const sincronizarPrompt = () => {
-      if (window.__deferredPwaPrompt) {
-        setPwaPrompt(window.__deferredPwaPrompt);
-      }
-    };
-
-    const onBeforeInstall = (e: Event) => {
-      e.preventDefault();
-      const ev = e as BeforeInstallPromptEvent;
-      window.__deferredPwaPrompt = ev;
-      setPwaPrompt(ev);
-    };
-
-    const onInstalled = () => {
-      window.__deferredPwaPrompt = null;
-      setPwaPrompt(null);
-      setJaInstalado(true);
-      setModalGuiaPwa(false);
-    };
-
     const onResize = () => {
-      setEhMobile(verificarCelular());
       setJaInstalado(verificarAppInstalado());
     };
 
-    sincronizarPrompt();
-    window.addEventListener('beforeinstallprompt', onBeforeInstall);
-    window.addEventListener('sectrum:pwa-prompt-ready', sincronizarPrompt);
-    window.addEventListener('appinstalled', onInstalled);
-    window.addEventListener('sectrum:pwa-installed', onInstalled);
     window.addEventListener('resize', onResize);
-
     return () => {
-      window.removeEventListener('beforeinstallprompt', onBeforeInstall);
-      window.removeEventListener('sectrum:pwa-prompt-ready', sincronizarPrompt);
-      window.removeEventListener('appinstalled', onInstalled);
-      window.removeEventListener('sectrum:pwa-installed', onInstalled);
       window.removeEventListener('resize', onResize);
     };
   }, []);
@@ -163,35 +108,10 @@ export default function Login() {
     }
   };
 
-  const instalarPwa = async () => {
-    const promptAtivo = pwaPrompt ?? window.__deferredPwaPrompt ?? null;
-    if (promptAtivo) {
-      try {
-        await promptAtivo.prompt();
-        const escolha = await promptAtivo.userChoice;
-        if (escolha.outcome === 'accepted') {
-          window.__deferredPwaPrompt = null;
-          setPwaPrompt(null);
-          setJaInstalado(true);
-        }
-        return;
-      } catch {
-        // Caso o navegador recuse disparar novamente o prompt, exibe o guia passo a passo
-      }
-    }
-    setModalGuiaPwa(true);
-  };
-
-  const podeMostrarOpcaoPwa = !jaInstalado && (ehMobile || Boolean(pwaPrompt));
-  const mostrarBannerRodape = podeMostrarOpcaoPwa && !bannerFechado;
   const anoAtual = new Date().getFullYear();
 
   return (
-    <div
-      className={`min-h-screen min-h-dvh bg-[#0f172a] flex flex-col md:flex-row items-stretch font-['Inter',sans-serif] overflow-x-hidden ${
-        mostrarBannerRodape ? 'pb-[76px] md:pb-0' : ''
-      }`}
-    >
+    <div className="min-h-screen min-h-dvh bg-[#0f172a] flex flex-col md:flex-row items-stretch font-['Inter',sans-serif] overflow-x-hidden">
       {/* LADO ESQUERDO: Marca Sectrum (idêntico ao .side-brand do legado) */}
       <div
         className="flex-none md:flex-1 flex flex-col items-center justify-center px-6 pt-7 pb-6 md:p-10 relative overflow-hidden"
@@ -274,7 +194,7 @@ export default function Login() {
                   <line x1="12" y1="18" x2="12.01" y2="18" />
                 </svg>
               </div>
-              <span>App instalável no celular — funciona como nativo</span>
+              <span>Aplicativo oficial para Android e iPhone (iOS)</span>
             </div>
           </div>
         </div>
@@ -439,52 +359,63 @@ export default function Login() {
               </div>
             )}
 
-            {/* Botão sempre visível na tela inicial ao acessar via celular (ou quando instalável) */}
-            {podeMostrarOpcaoPwa && (
-              <div className="mt-4 pt-1 space-y-2.5">
-                {!ehIos && (
-                  <a
-                    href="/sectrum-condominio.apk"
-                    download="Sectrum-Condominio.apk"
-                    className="w-full p-3.5 rounded-[12px] bg-gradient-to-r from-emerald-900 to-emerald-700 hover:from-emerald-800 hover:to-emerald-600 text-white border border-emerald-400/40 shadow-md transition-all cursor-pointer flex items-center gap-3 text-left no-underline"
-                  >
-                    <div className="w-10 h-10 rounded-[10px] bg-emerald-500 flex items-center justify-center shrink-0 shadow-inner">
-                      <Download size={20} className="text-white" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-extrabold text-[0.92em] leading-tight flex items-center gap-1.5">
-                        <span>Baixar App Nativo Android</span>
-                        <span className="text-[0.68em] uppercase bg-emerald-400/30 text-emerald-100 px-1.5 py-0.5 rounded font-bold">
-                          APK Nativo
-                        </span>
-                      </div>
-                      <div className="text-[0.75em] text-emerald-100/90 mt-0.5 truncate">
-                        Interfone e Sirene funcionam com o app fechado
-                      </div>
-                    </div>
-                  </a>
-                )}
-
-                <button
-                  type="button"
-                  onClick={instalarPwa}
-                  className="w-full p-3.5 rounded-[12px] bg-gradient-to-r from-[#0f172a] to-[#1e3a5f] hover:from-[#1e293b] hover:to-[#2563eb] text-white border border-blue-500/30 shadow-md transition-all cursor-pointer flex items-center gap-3 text-left"
+            {/* Botões oficiais das lojas (Google Play & App Store — ocultos dentro do app já instalado) */}
+            {!jaInstalado && (
+              <div className="mt-4 pt-1 flex flex-col gap-2.5">
+                <a
+                  href={LINK_GOOGLE_PLAY}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`w-full p-3.5 rounded-[12px] bg-gradient-to-r from-emerald-950 via-slate-900 to-emerald-900 hover:from-emerald-900 hover:to-emerald-800 text-white border border-emerald-400/40 shadow-md transition-all cursor-pointer flex items-center gap-3 text-left no-underline ${
+                    ehIos ? 'order-2' : 'order-1'
+                  }`}
                 >
-                  <div className="w-10 h-10 rounded-[10px] bg-[#2563eb] flex items-center justify-center shrink-0 shadow-inner">
-                    <Download size={20} className="text-white" />
+                  <div className="w-10 h-10 rounded-[10px] bg-white/10 border border-white/15 flex items-center justify-center shrink-0 shadow-inner">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="w-5 h-5">
+                      <path fill="#34A853" d="M3.61 1.814L13.793 12 3.61 22.186a1.98 1.98 0 0 1-.61-1.43V3.244c0-.55.224-1.05.61-1.43z" />
+                      <path fill="#FBBC04" d="M17.26 8.533L5.055 1.49A1.74 1.74 0 0 0 3.61 1.814L13.793 12l3.467-3.467z" />
+                      <path fill="#EA4335" d="M3.61 22.186c.42.345 1.003.428 1.445.324l12.205-7.043L13.793 12 3.61 22.186z" />
+                      <path fill="#4285F4" d="M20.992 10.684l-3.732-2.151L13.793 12l3.467 3.467 3.732-2.151c.864-.498.864-2.134 0-2.632z" />
+                    </svg>
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="font-extrabold text-[0.92em] leading-tight flex items-center gap-1.5">
-                      <span>Instalar Aplicativo no Celular</span>
-                      <span className="text-[0.68em] uppercase bg-blue-500/30 text-blue-200 px-1.5 py-0.5 rounded font-bold">
-                        PWA
+                    <div className="font-extrabold text-[0.92em] leading-tight flex items-center gap-1.5 flex-wrap">
+                      <span>Baixar no Google Play (Android)</span>
+                      <span className="text-[0.68em] uppercase bg-emerald-500/30 text-emerald-200 px-1.5 py-0.5 rounded font-bold">
+                        Google Play
                       </span>
                     </div>
                     <div className="text-[0.75em] text-slate-300 mt-0.5 truncate">
-                      Adicione à tela inicial para acesso rápido
+                      Versão oficial para Android na Google Play Store
                     </div>
                   </div>
-                </button>
+                </a>
+
+                <a
+                  href={LINK_APP_STORE_IOS}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`w-full p-3.5 rounded-[12px] bg-gradient-to-r from-slate-950 via-slate-900 to-blue-950 hover:from-slate-900 hover:to-blue-900 text-white border border-blue-400/40 shadow-md transition-all cursor-pointer flex items-center gap-3 text-left no-underline ${
+                    ehIos ? 'order-1' : 'order-2'
+                  }`}
+                >
+                  <div className="w-10 h-10 rounded-[10px] bg-white/10 border border-white/15 flex items-center justify-center shrink-0 shadow-inner">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5 text-white">
+                      <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M15.97 6.33c.64-.78 1.08-1.86.96-2.94-.93.04-2.06.62-2.72 1.4-.58.68-1.1 1.79-.96 2.84 1.04.08 2.08-.52 2.72-1.3z" />
+                    </svg>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-extrabold text-[0.92em] leading-tight flex items-center gap-1.5 flex-wrap">
+                      <span>Baixar na App Store (iPhone)</span>
+                      <span className="text-[0.68em] uppercase bg-blue-500/30 text-blue-200 px-1.5 py-0.5 rounded font-bold">
+                        App Store
+                      </span>
+                    </div>
+                    <div className="text-[0.75em] text-slate-300 mt-0.5 truncate">
+                      Versão oficial para iPhone e iPad na App Store
+                    </div>
+                  </div>
+                </a>
               </div>
             )}
           </form>
@@ -503,187 +434,13 @@ export default function Login() {
             Suporte: (98) 98598-3566
           </a>
           <br />
-          &copy; {anoAtual} Sectrum Tecnologia · Todos os direitos reservados
+          &copy; {anoAtual} Sectrum Tecnologia · CNPJ 17.241.131/0001-63 (J.V DE C SABINO)
           <br />
           <a href="/politica-de-privacidade.html" className="text-[#64748b] underline">
             Política de Privacidade
           </a>
         </div>
       </div>
-
-      {/* Banner de instalação PWA fixo no rodapé (sempre exibido ao abrir no celular fora do app instalado) */}
-      {mostrarBannerRodape && (
-        <div className="fixed bottom-0 left-0 right-0 z-[9990] bg-[#0f172a] text-white px-4 sm:px-5 py-3.5 flex items-center gap-3 shadow-[0_-4px_24px_rgba(0,0,0,0.4)] border-t border-white/10">
-          <div className="w-[42px] h-[42px] rounded-[11px] bg-[#2563eb] flex items-center justify-center shrink-0">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-6 h-6 text-white">
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-            </svg>
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="font-bold text-[0.88em]">Instalar app Sectrum</div>
-            <div className="text-[0.75em] text-white/60 mt-px truncate">
-              Acesse direto da tela inicial, sem abrir o navegador
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={instalarPwa}
-            className="bg-[#2563eb] hover:bg-[#1d4ed8] text-white border-0 px-[16px] py-[9px] rounded-[9px] font-bold text-[0.83em] cursor-pointer whitespace-nowrap shrink-0 flex items-center gap-1.5"
-          >
-            <Download size={15} />
-            Instalar
-          </button>
-          <button
-            type="button"
-            onClick={() => setBannerFechado(true)}
-            aria-label="Fechar"
-            className="bg-white/10 text-white border-0 w-8 h-8 rounded-lg cursor-pointer text-[1.2em] shrink-0 flex items-center justify-center"
-          >
-            ×
-          </button>
-        </div>
-      )}
-
-      {/* Modal de Instruções de Instalação PWA (iOS / Android quando o navegador requer ação manual) */}
-      {modalGuiaPwa && (
-        <div
-          className="fixed inset-0 z-[9999] bg-slate-900/75 backdrop-blur-xs flex items-end sm:items-center justify-center p-3 sm:p-4"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setModalGuiaPwa(false);
-          }}
-        >
-          <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl border-t-[5px] border-t-[#2563eb] animate-[fadeIn_0.15s_ease-out]">
-            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0">
-                  <Smartphone size={22} />
-                </div>
-                <div>
-                  <h3 className="font-extrabold text-slate-900 text-base">Instalar App Sectrum</h3>
-                  <p className="text-xs text-slate-500">
-                    {ehIos ? 'Para iPhone / iPad (iOS)' : 'Adicionar à tela inicial do celular'}
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setModalGuiaPwa(false)}
-                aria-label="Fechar"
-                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center cursor-pointer"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="p-5 space-y-4 text-sm text-slate-700">
-              {ehIos ? (
-                <>
-                  <p className="text-xs font-medium text-slate-500">
-                    No iPhone/iPad, siga estes 3 passos rápidos para instalar o aplicativo na sua tela inicial:
-                  </p>
-                  <div className="space-y-3">
-                    <div className="flex items-start gap-3 p-3 rounded-xl bg-slate-50 border border-slate-200/80">
-                      <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center shrink-0 font-extrabold">
-                        1
-                      </div>
-                      <div className="flex-1">
-                        <div className="font-bold text-slate-900 flex items-center gap-1.5 flex-wrap">
-                          <span>Toque no botão Compartilhar</span>
-                          <span className="inline-flex items-center justify-center w-6 h-6 rounded bg-blue-600 text-white">
-                            <Share size={14} />
-                          </span>
-                        </div>
-                        <p className="text-xs text-slate-500 mt-0.5">
-                          Fica na barra inferior (Safari) ou no canto superior direito da barra de endereço (Chrome).
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-start gap-3 p-3 rounded-xl bg-slate-50 border border-slate-200/80">
-                      <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center shrink-0 font-extrabold">
-                        2
-                      </div>
-                      <div className="flex-1">
-                        <div className="font-bold text-slate-900 flex items-center gap-1.5 flex-wrap">
-                          <span>Escolha &ldquo;Adicionar à Tela de Início&rdquo;</span>
-                          <span className="inline-flex items-center justify-center w-6 h-6 rounded bg-slate-200 text-slate-700">
-                            <PlusSquare size={14} />
-                          </span>
-                        </div>
-                        <p className="text-xs text-slate-500 mt-0.5">
-                          Role o menu de opções para baixo até encontrar esta opção.
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-start gap-3 p-3 rounded-xl bg-slate-50 border border-slate-200/80">
-                      <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0 font-extrabold">
-                        3
-                      </div>
-                      <div className="flex-1">
-                        <div className="font-bold text-slate-900 flex items-center gap-1.5">
-                          <span>Toque em &ldquo;Adicionar&rdquo;</span>
-                          <CheckCircle2 size={15} className="text-emerald-600" />
-                        </div>
-                        <p className="text-xs text-slate-500 mt-0.5">
-                          Pronto! O ícone do Sectrum ficará salvo junto aos seus aplicativos.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <p className="text-xs font-medium text-slate-500">
-                    Para instalar o aplicativo Sectrum na tela inicial do seu celular:
-                  </p>
-                  <div className="space-y-3">
-                    <div className="flex items-start gap-3 p-3 rounded-xl bg-slate-50 border border-slate-200/80">
-                      <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center shrink-0 font-extrabold">
-                        1
-                      </div>
-                      <div className="flex-1">
-                        <div className="font-bold text-slate-900 flex items-center gap-1.5 flex-wrap">
-                          <span>Abra o menu do navegador</span>
-                          <span className="inline-flex items-center justify-center w-6 h-6 rounded bg-slate-200 text-slate-700">
-                            <MoreVertical size={14} />
-                          </span>
-                        </div>
-                        <p className="text-xs text-slate-500 mt-0.5">
-                          Toque nos três pontinhos no canto superior ou inferior do navegador.
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-start gap-3 p-3 rounded-xl bg-slate-50 border border-slate-200/80">
-                      <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center shrink-0 font-extrabold">
-                        2
-                      </div>
-                      <div className="flex-1">
-                        <div className="font-bold text-slate-900 flex items-center gap-1.5 flex-wrap">
-                          <span>Toque em &ldquo;Instalar aplicativo&rdquo;</span>
-                          <Download size={14} className="text-blue-600" />
-                        </div>
-                        <p className="text-xs text-slate-500 mt-0.5">
-                          Ou selecione &ldquo;Adicionar à tela inicial&rdquo; e confirme.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </>
-              )}
-
-              <button
-                type="button"
-                onClick={() => setModalGuiaPwa(false)}
-                className="w-full py-3 rounded-xl bg-[#2563eb] hover:bg-[#1d4ed8] text-white font-bold text-sm cursor-pointer transition"
-              >
-                Entendi
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

@@ -250,6 +250,7 @@ class VideoRTC extends HTMLElement {
             this.oninit();
         }
 
+        this._attachVisibilityTrackers();
         this.onconnect();
     }
 
@@ -258,6 +259,9 @@ class VideoRTC extends HTMLElement {
      * document's DOM.
      */
     disconnectedCallback() {
+        if (!this.isConnected) {
+            this._detachVisibilityTrackers();
+        }
         if (this.background || this.disconnectTID) return;
         if (this.wsState === WebSocket.CLOSED && this.pcState === WebSocket.CLOSED) return;
 
@@ -271,6 +275,48 @@ class VideoRTC extends HTMLElement {
 
             this.ondisconnect();
         }, this.DISCONNECT_TIMEOUT);
+    }
+
+    _attachVisibilityTrackers() {
+        if (this.background || this._visAttached) return;
+        this._visAttached = true;
+
+        if ('hidden' in document && this.visibilityCheck) {
+            this._onVisChange = () => {
+                if (document.hidden) {
+                    this.disconnectedCallback();
+                } else if (this.isConnected) {
+                    this.connectedCallback();
+                }
+            };
+            document.addEventListener('visibilitychange', this._onVisChange);
+        }
+
+        if ('IntersectionObserver' in window && this.visibilityThreshold) {
+            this._ioObserver = new IntersectionObserver(entries => {
+                entries.forEach(entry => {
+                    if (!entry.isIntersecting) {
+                        this.disconnectedCallback();
+                    } else if (this.isConnected) {
+                        this.connectedCallback();
+                    }
+                });
+            }, {threshold: this.visibilityThreshold});
+            this._ioObserver.observe(this);
+        }
+    }
+
+    _detachVisibilityTrackers() {
+        if (!this._visAttached) return;
+        this._visAttached = false;
+        if (this._onVisChange) {
+            document.removeEventListener('visibilitychange', this._onVisChange);
+            this._onVisChange = null;
+        }
+        if (this._ioObserver) {
+            this._ioObserver.disconnect();
+            this._ioObserver = null;
+        }
     }
 
     /**
@@ -328,30 +374,6 @@ class VideoRTC extends HTMLElement {
             this.CODECS = this.CODECS.filter(c => c !== 'flac' && c !== 'opus');
         }
 
-        if (this.background) return;
-
-        if ('hidden' in document && this.visibilityCheck) {
-            document.addEventListener('visibilitychange', () => {
-                if (document.hidden) {
-                    this.disconnectedCallback();
-                } else if (this.isConnected) {
-                    this.connectedCallback();
-                }
-            });
-        }
-
-        if ('IntersectionObserver' in window && this.visibilityThreshold) {
-            const observer = new IntersectionObserver(entries => {
-                entries.forEach(entry => {
-                    if (!entry.isIntersecting) {
-                        this.disconnectedCallback();
-                    } else if (this.isConnected) {
-                        this.connectedCallback();
-                    }
-                });
-            }, {threshold: this.visibilityThreshold});
-            observer.observe(this);
-        }
     }
 
     /**
@@ -545,8 +567,13 @@ class VideoRTC extends HTMLElement {
             this.ondata = data => {
                 if (sb.updating || bufLen > 0) {
                     const b = new Uint8Array(data);
-                    buf.set(b, bufLen);
-                    bufLen += b.byteLength;
+                    if (bufLen + b.byteLength > buf.byteLength) {
+                        bufLen = 0;
+                    }
+                    if (b.byteLength <= buf.byteLength) {
+                        buf.set(b, bufLen);
+                        bufLen += b.byteLength;
+                    }
                     // console.debug('VideoRTC.buffer', b.byteLength, bufLen);
                 } else {
                     try {

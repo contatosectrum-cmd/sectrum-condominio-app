@@ -3,9 +3,11 @@ import { Navigate } from 'react-router-dom';
 import {
   MessageSquare, Bot, Sparkles, Send, RefreshCw, QrCode, CheckCircle2, AlertCircle,
   Phone, UserCheck, Plus, Trash2, Pencil, Users, Zap, Cpu, ShieldCheck, X, Megaphone, ImagePlus, Building2, CheckSquare, Square,
+  FolderOpen, Paperclip, ScanFace, Search, Link2,
 } from 'lucide-react';
 import { api, ErroApi } from '../lib/api';
 import { useSessao } from '../lib/useSessao';
+import ModalDocumentosCadastro from '../components/ModalDocumentosCadastro';
 
 interface ConfigWhatsapp {
   id: number;
@@ -144,6 +146,15 @@ interface DadosPainelWhatsapp {
     respostas_automaticas: number;
   };
   regras: RegraAuto[];
+  condominios_simulador?: Array<{
+    id: number;
+    nome: string;
+    app_habilitado: number;
+    modulo_encomendas: number;
+    modulo_reservas?: number;
+    permite_temporada?: number;
+    modulo_ocorrencias?: number;
+  }>;
 }
 
 interface ConversaWhatsapp {
@@ -168,7 +179,26 @@ interface ConversaWhatsapp {
   cpf_confirmado?: string | null;
   motivo_encerramento?: string | null;
   morador_cpf?: string | null;
+  morador_unidade_id?: number | null;
+  morador_relacao?: string | null;
+  precadastro_id?: number | null;
+  precadastro_nome?: string | null;
+  qtd_documentos?: number;
   condominio_nome?: string | null;
+}
+
+interface OpcaoAlvoVinculoWhatsapp {
+  tipo_alvo: 'morador' | 'precadastro';
+  usuario_id: number | null;
+  precadastro_id: number | null;
+  condominio_id: number;
+  condominio_nome: string;
+  unidade_id: number | null;
+  nome: string;
+  cpf: string;
+  telefone: string;
+  relacao: string;
+  unidade_label: string;
 }
 
 interface MensagemWhatsapp {
@@ -188,6 +218,7 @@ interface CondominioMassa {
   id: number;
   nome: string;
   total_moradores_fone: number;
+  total_planilha_fone?: number;
   total_conversas: number;
 }
 
@@ -225,6 +256,153 @@ interface CampanhaMassa {
   enviados_push: number;
   falhas: number;
   data_hora: string;
+}
+
+interface BilhetagemParametros {
+  custo_por_1k_tokens_brl: number;
+  custo_msg_servico_meta_brl: number;
+  custo_template_utilidade_brl: number;
+  custo_template_marketing_brl: number;
+  valor_bilhete_atendimento_brl: number;
+  valor_bilhete_notificacao_brl: number;
+  margem_lucro_padrao_pct?: number;
+  orcamento_mensal_previsto_brl: number;
+}
+
+interface BilhetagemCondominioItem {
+  condominio_id: number;
+  condominio_nome: string;
+  cidade: string;
+  whatsapp_auto_ativo?: number;
+  whatsapp_ia_ativo?: number;
+  whatsapp_chat_condominio?: number;
+  plano_whatsapp_ia?: string;
+  valor_mensal_plano_zap_brl?: number;
+  conversas_count: number;
+  atendimentos_suporte: number;
+  notificacoes_ativas: number;
+  msgs_in: number;
+  msgs_out: number;
+  msgs_ia: number;
+  msgs_manuais: number;
+  templates_utilidade: number;
+  templates_marketing: number;
+  templates_meta: number;
+  tokens_prompt: number;
+  tokens_resposta: number;
+  tokens_total: number;
+  tempo_medio_ia_ms: number;
+  custo_tokens_brl: number;
+  custo_meta_api_brl: number;
+  custo_total_meta_brl: number;
+  valor_bilhetado_suporte_brl: number;
+  valor_bilhetado_notificacoes_brl: number;
+  valor_consumo_bilhetes_brl?: number;
+  valor_total_bilhetado_brl: number;
+  lucro_liquido_brl?: number;
+  margem_real_pct?: number;
+  participacao_tokens_pct: number;
+}
+
+interface BilhetagemSerieDia {
+  data: string;
+  data_label: string;
+  atendimentos: number;
+  mensagens: number;
+  tokens_total: number;
+  custo_meta_brl: number;
+  valor_bilhetado_brl: number;
+}
+
+interface BilhetagemExtratoItem {
+  conversa_id: number;
+  condominio_id: number;
+  condominio_nome: string;
+  nome_contato: string;
+  telefone: string;
+  unidade_label: string;
+  tipo_atendimento: 'atendimento_suporte' | 'notificacao_ativa' | string;
+  status_atendimento: string;
+  resolvedor: string;
+  atendimentos_qtd: number;
+  msgs_in: number;
+  msgs_out: number;
+  templates_usados: number;
+  tokens_prompt: number;
+  tokens_resposta: number;
+  tokens_total: number;
+  tempo_medio_ia_ms: number;
+  custo_meta_brl: number;
+  valor_bilhetado_brl: number;
+  ultima_interacao_em: string;
+}
+
+interface DadosBilhetagemWhatsapp {
+  periodo: string;
+  periodo_label: string;
+  condominio_id: number;
+  parametros: BilhetagemParametros;
+  resumo: {
+    total_atendimentos: number;
+    total_notificacoes_ativas: number;
+    total_conversas: number;
+    mensagens_recebidas: number;
+    mensagens_enviadas: number;
+    mensagens_ia_regras: number;
+    mensagens_manuais: number;
+    templates_utilidade: number;
+    templates_marketing: number;
+    tokens_prompt: number;
+    tokens_resposta: number;
+    tokens_total: number;
+    tempo_medio_ia_ms: number;
+    taxa_resolucao_ia_pct: number;
+    custo_tokens_brl: number;
+    custo_mensagens_meta_brl: number;
+    custo_total_meta_brl: number;
+    valor_bilhetado_atendimentos_brl: number;
+    valor_bilhetado_notificacoes_brl: number;
+    valor_consumo_bilhetes_brl?: number;
+    valor_total_bilhetado_brl: number;
+    saldo_resultado_brl: number;
+    margem_real_pct?: number;
+  };
+  previsibilidade: {
+    competencia: string;
+    dias_corridos_mes: number;
+    dias_totais_mes: number;
+    tokens_acumulados_mes: number;
+    media_diaria_tokens: number;
+    projecao_mensal_tokens: number;
+    atendimentos_acumulados_mes: number;
+    media_diaria_atendimentos: number;
+    projecao_mensal_atendimentos: number;
+    gasto_acumulado_mes_meta_brl: number;
+    media_diaria_meta_brl: number;
+    projecao_mensal_meta_brl: number;
+    orcamento_mensal_previsto_brl: number;
+    percentual_orcamento_consumido: number;
+    percentual_orcamento_projetado: number;
+    bilhetagem_acumulada_mes_brl: number;
+    projecao_mensal_bilhetagem_brl: number;
+    status_orcamento: 'dentro_meta' | 'atencao' | 'acima_meta' | string;
+  };
+  por_condominio: BilhetagemCondominioItem[];
+  serie_diaria: BilhetagemSerieDia[];
+  extrato_atendimentos: BilhetagemExtratoItem[];
+}
+
+function formatarMoedaBrl(valor: number, casas = 2): string {
+  return Number(valor || 0).toLocaleString('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+    minimumFractionDigits: casas,
+    maximumFractionDigits: casas,
+  });
+}
+
+function formatarInteiroPtBr(valor: number): string {
+  return Number(valor || 0).toLocaleString('pt-BR');
 }
 
 /** Lê um arquivo de imagem (JPG/PNG/WEBP) e redimensiona/comprime suavemente para até 1280px Base64. */
@@ -273,11 +451,19 @@ function lerEComprimirImagemParaBase64(file: File): Promise<string> {
 const msgErro = (e: unknown, padrao = 'Erro inesperado.') =>
   e instanceof ErroApi ? e.message : padrao;
 
+let audioCtxAlertaWhatsapp: AudioContext | null = null;
+
 function tocarAlertaSonoroHumano() {
   try {
     const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     if (!AudioCtx) return;
-    const ctx = new AudioCtx();
+    if (!audioCtxAlertaWhatsapp || audioCtxAlertaWhatsapp.state === 'closed') {
+      audioCtxAlertaWhatsapp = new AudioCtx();
+    }
+    const ctx = audioCtxAlertaWhatsapp;
+    if (ctx.state === 'suspended') {
+      ctx.resume().catch(() => {});
+    }
     const notas = [880, 1174.66, 880, 1174.66];
     notas.forEach((freq, idx) => {
       const osc = ctx.createOscillator();
@@ -358,6 +544,12 @@ function badgeOrigemMensagem(origem: string) {
           <CheckCircle2 size={10} className="text-emerald-700" /> Boas-Vindas Automático
         </span>
       );
+    case 'triagem_ia':
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-600/15 text-indigo-950 border border-indigo-500/25 text-[10px] font-extrabold">
+          <Bot size={10} className="text-indigo-700" /> Triagem Pré-cadastro (IA)
+        </span>
+      );
     case 'auto_regra':
       return (
         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-teal-700/15 text-teal-950 border border-teal-600/25 text-[10px] font-extrabold">
@@ -390,7 +582,10 @@ function badgeOrigemMensagem(origem: string) {
 export default function WhatsappCentral() {
   const { usuario } = useSessao();
   const ehAdminGeral = Boolean(usuario?.superadmin);
-  const [aba, setAba] = useState<'chat' | 'massa' | 'automacao' | 'ia_config'>('chat');
+  const podeAcessarChat =
+    ehAdminGeral ||
+    Boolean(usuario?.whatsapp_chat_condominio && (usuario?.perfil === 'admin' || usuario?.perfil === 'sindico'));
+  const [aba, setAba] = useState<'chat' | 'massa' | 'bilhetagem' | 'automacao' | 'ia_config'>('chat');
   const [painel, setPainel] = useState<DadosPainelWhatsapp | null>(null);
   const [formCfg, setFormCfg] = useState<ConfigWhatsapp | null>(null);
   const [conversas, setConversas] = useState<ConversaWhatsapp[]>([]);
@@ -399,10 +594,12 @@ export default function WhatsappCentral() {
     abertas: number;
     encerradas: number;
     aguardando_humano: number;
+    nao_lidas: number;
   }>({
     abertas: 0,
     encerradas: 0,
     aguardando_humano: 0,
+    nao_lidas: 0,
   });
   const [buscaConv, setBuscaConv] = useState('');
   const [conversaAtiva, setConversaAtiva] = useState<ConversaWhatsapp | null>(null);
@@ -415,14 +612,36 @@ export default function WhatsappCentral() {
   const [sincronizando, setSincronizando] = useState(false);
   const [aviso, setAviso] = useState<{ tipo: 'ok' | 'erro'; texto: string } | null>(null);
 
+  // Estados da Aba de Bilhetagem por Atendimento de Condomínio & Monitoramento de Tokens / Previsibilidade Meta
+  const [dadosBilhetagem, setDadosBilhetagem] = useState<DadosBilhetagemWhatsapp | null>(null);
+  const [carregandoBilhetagem, setCarregandoBilhetagem] = useState<boolean>(false);
+  const [salvandoParametrosBilhetagem, setSalvandoParametrosBilhetagem] = useState<boolean>(false);
+  const [periodoBilhetagem, setPeriodoBilhetagem] = useState<'mes_atual' | 'mes_anterior' | '7d' | '30d' | '90d' | 'tudo'>('mes_atual');
+  const [condominioFiltroBilhetagem, setCondominioFiltroBilhetagem] = useState<number>(() => Number(usuario?.condominio_id || 0));
+  const [mostrarPlanosComerciais, setMostrarPlanosComerciais] = useState<boolean>(false);
+  const [salvandoPlanoCondId, setSalvandoPlanoCondId] = useState<number | null>(null);
+  const [formParametrosBilhetagem, setFormParametrosBilhetagem] = useState<BilhetagemParametros>({
+    custo_por_1k_tokens_brl: 0.0,
+    custo_msg_servico_meta_brl: 0.0,
+    custo_template_utilidade_brl: 0.039,
+    custo_template_marketing_brl: 0.36,
+    valor_bilhete_atendimento_brl: 0.75,
+    valor_bilhete_notificacao_brl: 0.25,
+    margem_lucro_padrao_pct: 200.0,
+    orcamento_mensal_previsto_brl: 500.0,
+  });
+
   // Estados da Aba de Disparo em Massa por Condomínio (com Texto + Foto + Push + Mural)
   const [condominiosMassa, setCondominiosMassa] = useState<CondominioMassa[]>([]);
   const [blocosMassa, setBlocosMassa] = useState<BlocoMassa[]>([]);
   const [destinatariosMassa, setDestinatariosMassa] = useState<DestinatarioMassa[]>([]);
   const [campanhasMassa, setCampanhasMassa] = useState<CampanhaMassa[]>([]);
-  const [condominioIdMassa, setCondominioIdMassa] = useState<number>(0);
+  const [condominioIdMassa, setCondominioIdMassa] = useState<number>(() => Number(usuario?.condominio_id || 0));
   const [blocoIdMassa, setBlocoIdMassa] = useState<number>(0);
-  const [filtroPublicoMassa, setFiltroPublicoMassa] = useState<'todos' | 'apenas_moradores' | 'apenas_conversas'>('todos');
+  const [filtroPublicoMassa, setFiltroPublicoMassa] = useState<
+    'todos' | 'planilha_pendentes' | 'apenas_moradores' | 'apenas_conversas'
+  >('todos');
+  const [linkRecadMassa, setLinkRecadMassa] = useState<string>('https://cond.vps.seg.br');
   const [buscaDestMassa, setBuscaDestMassa] = useState('');
   const [telefonesDesmarcadosMassa, setTelefonesDesmarcadosMassa] = useState<Set<string>>(new Set());
   const [tituloMassa, setTituloMassa] = useState('🚀 Atualização do Aplicativo Sectrum — Novas Funcionalidades!');
@@ -437,10 +656,62 @@ export default function WhatsappCentral() {
   const [fotoMassaNome, setFotoMassaNome] = useState<string>('');
   const [enviarPushMassa, setEnviarPushMassa] = useState<boolean>(true);
   const [publicarMuralMassa, setPublicarMuralMassa] = useState<boolean>(false);
+  const [botoesRecadMassa, setBotoesRecadMassa] = useState<boolean>(false);
+  const [statusTplBotoesMeta, setStatusTplBotoesMeta] = useState<string>('PENDING');
+  const [saudeMetaMassa, setSaudeMetaMassa] = useState<{
+    liberado_iniciar_conversa: boolean;
+    can_send_message: string;
+    quality_rating: string;
+    messaging_limit_tier: string;
+    business_id: string;
+    motivo_bloqueio_pt: string;
+    link_verificacao_meta: string;
+  } | null>(null);
   const [carregandoMassa, setCarregandoMassa] = useState<boolean>(false);
   const [disparandoMassa, setDisparandoMassa] = useState<boolean>(false);
   const inputFotoMassaRef = useRef<HTMLInputElement | null>(null);
   const inputFotoChatRef = useRef<HTMLInputElement | null>(null);
+  const inputFotoMetaPerfilRef = useRef<HTMLInputElement | null>(null);
+
+  // Perfil Comercial Oficial na Meta (Foto, Recado, Descrição e Status do Selo OBA)
+  const [metaPerfil, setMetaPerfil] = useState<{
+    about: string;
+    description: string;
+    address: string;
+    email: string;
+    website: string;
+    vertical: string;
+    profile_picture_url: string;
+  } | null>(null);
+  const [metaNumeroInfo, setMetaNumeroInfo] = useState<{
+    display_phone_number: string;
+    verified_name: string;
+    quality_rating: string;
+    is_official_business_account: boolean;
+    messaging_limit_tier: string;
+    business_verification_status: string;
+    template_imagem_status: string;
+  } | null>(null);
+  const [fotoMetaNovaBase64, setFotoMetaNovaBase64] = useState<string>('');
+  const [salvandoMetaPerfil, setSalvandoMetaPerfil] = useState<boolean>(false);
+
+  const anexarBannerOficialRecadastramento = useCallback(async () => {
+    try {
+      const resp = await fetch(`/sectrum-banner-recadastramento.jpg?v=${Date.now()}`, { cache: 'no-store' });
+      if (!resp.ok) return;
+      const blob = await resp.blob();
+      const b64 = await new Promise<string>((resolve, reject) => {
+        const rd = new FileReader();
+        rd.onload = () => resolve(String(rd.result));
+        rd.onerror = () => reject(new Error('Falha ao ler arte oficial'));
+        rd.readAsDataURL(blob);
+      });
+      setFotoMassaBase64(b64);
+      setFotoMassaNome('sectrum-banner-recadastramento.jpg');
+    } catch {
+      // ignora silenciosamente se offline
+    }
+  }, []);
 
   // Modal de QR Code para conectar o WhatsApp na Evolution API
   const [modalQrAberto, setModalQrAberto] = useState(false);
@@ -453,11 +724,38 @@ export default function WhatsappCentral() {
   const [novoNome, setNovoNome] = useState('');
   const [novoTexto, setNovoTexto] = useState('');
 
+  // Estados de Documentos e Vínculo de Mídias/Conversas direto no Chat
+  const [modalPastaDocsChat, setModalPastaDocsChat] = useState<{
+    nomePessoa: string;
+    subtituloUnidade?: string | null;
+    relacaoSugerida?: string | null;
+    usuarioId?: number | null;
+    unidadeId?: number | null;
+    precadastroId?: number | null;
+  } | null>(null);
+  const [modalVincularMidia, setModalVincularMidia] = useState<{
+    msg: MensagemWhatsapp;
+    ehPdf: boolean;
+  } | null>(null);
+  const [modalVincularConversaAberto, setModalVincularConversaAberto] = useState<boolean>(false);
+  const [acaoVinculoMidia, setAcaoVinculoMidia] = useState<'documento' | 'foto_facial'>('documento');
+  const [categoriaVinculoMidia, setCategoriaVinculoMidia] = useState<string>('contrato_locacao');
+  const [tituloVinculoMidia, setTituloVinculoMidia] = useState<string>('');
+  const [validadeVinculoMidia, setValidadeVinculoMidia] = useState<string>('');
+  const [obsVinculoMidia, setObsVinculoMidia] = useState<string>('');
+  const [alvoSelecionadoVinculo, setAlvoSelecionadoVinculo] = useState<OpcaoAlvoVinculoWhatsapp | null>(null);
+  const [mostrandoBuscaAlvo, setMostrandoBuscaAlvo] = useState<boolean>(false);
+  const [buscaAlvoTexto, setBuscaAlvoTexto] = useState<string>('');
+  const [opcoesAlvoBusca, setOpcoesAlvoBusca] = useState<OpcaoAlvoVinculoWhatsapp[]>([]);
+  const [buscandoAlvo, setBuscandoAlvo] = useState<boolean>(false);
+  const [salvandoVinculoMidia, setSalvandoVinculoMidia] = useState<boolean>(false);
+
   // Modal de edição/criação de Regra Automática
   const [regraEditando, setRegraEditando] = useState<Partial<RegraAuto> | null>(null);
 
   // Simulador de IA na aba de configuração
   const [perguntaTesteIa, setPerguntaTesteIa] = useState('Olá');
+  const [condominioSimuladorIa, setCondominioSimuladorIa] = useState<number>(Number(usuario?.condominio_id || 0));
   const [respostaTesteIa, setRespostaTesteIa] = useState('');
   const [testandoIa, setTestandoIa] = useState(false);
 
@@ -468,6 +766,20 @@ export default function WhatsappCentral() {
   const fimChatRef = useRef<HTMLDivElement | null>(null);
   const conversaAtivaIdRef = useRef<number | null>(null);
   const qtdAguardandoHumanoAnteriorRef = useRef<number>(0);
+  const reqMassaIdRef = useRef<number>(0);
+  const reqBilhetagemIdRef = useRef<number>(0);
+  const condominioSelecionadoId = Number(usuario?.condominio_id || 0);
+
+  // Ao trocar o condomínio selecionado no topo (ou voltar para Visão Geral / todos),
+  // limpa a conversa aberta do condomínio anterior e sincroniza os filtros.
+  useEffect(() => {
+    conversaAtivaIdRef.current = null;
+    setConversaAtiva(null);
+    setMensagens([]);
+    setCondominioIdMassa(condominioSelecionadoId);
+    setCondominioFiltroBilhetagem(condominioSelecionadoId);
+    setCondominioSimuladorIa(condominioSelecionadoId);
+  }, [condominioSelecionadoId]);
 
   const alternarFiltroConversas = (novoFiltro: 'aberta' | 'humano' | 'encerrada' | 'todas') => {
     setAba('chat');
@@ -479,23 +791,29 @@ export default function WhatsappCentral() {
   const carregarPainel = useCallback(async () => {
     if (!ehAdminGeral) return;
     try {
-      const r = await api<DadosPainelWhatsapp>('whatsapp_painel');
+      const r = await api<DadosPainelWhatsapp>('whatsapp_painel', {
+        query: { condominio_id: condominioSelecionadoId },
+      });
       setPainel(r);
-      setFormCfg((atual) => atual ?? r.config);
+      setFormCfg((atual) => (atual && atual.condominio_id === r.config.condominio_id ? atual : r.config));
     } catch (e) {
       setAviso({ tipo: 'erro', texto: msgErro(e, 'Falha ao carregar painel de WhatsApp & IA.') });
     }
-  }, [ehAdminGeral]);
+  }, [ehAdminGeral, condominioSelecionadoId]);
 
   const carregarConversas = useCallback(async (silencioso = false) => {
-    if (!ehAdminGeral) return;
+    if (!podeAcessarChat) return;
     try {
       const r = await api<{
         conversas: ConversaWhatsapp[];
         recentes_historico?: ConversaWhatsapp[];
-        contadores?: { abertas: number; encerradas: number; aguardando_humano?: number };
+        contadores?: { abertas: number; encerradas: number; aguardando_humano?: number; nao_lidas?: number };
       }>('whatsapp_conversas_listar', {
-        query: { busca: buscaConv, status_atendimento: filtroStatusConv },
+        query: {
+          busca: buscaConv,
+          status_atendimento: filtroStatusConv,
+          condominio_id: condominioSelecionadoId,
+        },
       });
       setConversas(r.conversas);
       if (r.contadores) {
@@ -516,6 +834,7 @@ export default function WhatsappCentral() {
           abertas: r.contadores.abertas,
           encerradas: r.contadores.encerradas,
           aguardando_humano: novoQtdHumano,
+          nao_lidas: r.contadores.nao_lidas ?? 0,
         });
       }
       setConversaAtiva((atual) => {
@@ -530,24 +849,20 @@ export default function WhatsappCentral() {
           conversaAtivaIdRef.current = encontrada.id;
           return { ...atual, ...encontrada };
         }
-        // Se estamos na aba de Ativas ou Humano e a conversa foi encerrada (não está mais na lista ativa),
-        // remove da tela ativa e seleciona a próxima conversa ativa (ou limpa a tela se zerou)
-        if (filtroStatusConv === 'aberta' || filtroStatusConv === 'humano') {
-          const proxima = listaBase[0] ?? null;
-          conversaAtivaIdRef.current = proxima?.id ?? null;
-          return proxima;
-        }
-        return atual;
+        // Se a conversa anterior não está na lista atual (ex.: filtro ou condomínio trocado), seleciona a primeira da nova lista
+        const proxima = listaBase[0] ?? null;
+        conversaAtivaIdRef.current = proxima?.id ?? null;
+        return proxima;
       });
     } catch (e) {
       if (!silencioso) {
         setAviso({ tipo: 'erro', texto: msgErro(e) });
       }
     }
-  }, [buscaConv, filtroStatusConv, ehAdminGeral]);
+  }, [buscaConv, filtroStatusConv, podeAcessarChat, condominioSelecionadoId]);
 
   const carregarMensagens = useCallback(async (conversaId: number, rolar = false, forcarSelecao = false) => {
-    if (!ehAdminGeral) return;
+    if (!podeAcessarChat) return;
     try {
       const r = await api<{ conversa: ConversaWhatsapp; mensagens: MensagemWhatsapp[] }>('whatsapp_mensagens_listar', {
         query: { conversa_id: conversaId },
@@ -591,20 +906,26 @@ export default function WhatsappCentral() {
     } catch {
       // ignora
     }
-  }, [ehAdminGeral, filtroStatusConv]);
+  }, [podeAcessarChat, filtroStatusConv]);
 
   useEffect(() => {
-    if (!ehAdminGeral) return;
-    carregarPainel();
+    if (!podeAcessarChat) return;
+    if (ehAdminGeral) {
+      carregarPainel();
+    }
     carregarConversas();
     const timerPainel = window.setInterval(() => {
-      carregarPainel();
+      if (ehAdminGeral) {
+        carregarPainel();
+      } else {
+        carregarConversas(true);
+      }
     }, 8000);
     return () => window.clearInterval(timerPainel);
-  }, [ehAdminGeral, carregarPainel, carregarConversas]);
+  }, [podeAcessarChat, ehAdminGeral, carregarPainel, carregarConversas]);
 
   useEffect(() => {
-    if (!ehAdminGeral || !conversaAtiva?.id) {
+    if (!podeAcessarChat || !conversaAtiva?.id) {
       setMensagens([]);
       return;
     }
@@ -614,7 +935,7 @@ export default function WhatsappCentral() {
       carregarConversas(true);
     }, 3500);
     return () => window.clearInterval(timer);
-  }, [ehAdminGeral, conversaAtiva?.id, carregarMensagens, carregarConversas]);
+  }, [podeAcessarChat, conversaAtiva?.id, carregarMensagens, carregarConversas]);
 
   const salvarConfig = async (cfgCustom?: ConfigWhatsapp) => {
     const alvo = cfgCustom ?? formCfg;
@@ -713,11 +1034,23 @@ export default function WhatsappCentral() {
 
   const carregarDadosMassa = useCallback(async () => {
     if (!ehAdminGeral) return;
+    const reqId = ++reqMassaIdRef.current;
     setCarregandoMassa(true);
     try {
       const r = await api<{
         condominios: CondominioMassa[];
         blocos: BlocoMassa[];
+        link_recadastramento?: string;
+        template_botoes_status?: string;
+        saude_meta?: {
+          liberado_iniciar_conversa: boolean;
+          can_send_message: string;
+          quality_rating: string;
+          messaging_limit_tier: string;
+          business_id: string;
+          motivo_bloqueio_pt: string;
+          link_verificacao_meta: string;
+        };
         destinatarios: DestinatarioMassa[];
         campanhas_recentes: CampanhaMassa[];
       }>('whatsapp_disparo_massa_dados', {
@@ -727,14 +1060,22 @@ export default function WhatsappCentral() {
           filtro_publico: filtroPublicoMassa,
         },
       });
+      if (reqId !== reqMassaIdRef.current) return;
       setCondominiosMassa(r.condominios || []);
       setBlocosMassa(r.blocos || []);
+      setLinkRecadMassa(r.link_recadastramento || 'https://cond.vps.seg.br');
+      setStatusTplBotoesMeta(r.template_botoes_status || 'PENDING');
+      setSaudeMetaMassa(r.saude_meta || null);
       setDestinatariosMassa(r.destinatarios || []);
       setCampanhasMassa(r.campanhas_recentes || []);
     } catch (e) {
-      setAviso({ tipo: 'erro', texto: msgErro(e, 'Erro ao carregar contatos para disparo em massa.') });
+      if (reqId === reqMassaIdRef.current) {
+        setAviso({ tipo: 'erro', texto: msgErro(e, 'Erro ao carregar contatos para disparo em massa.') });
+      }
     } finally {
-      setCarregandoMassa(false);
+      if (reqId === reqMassaIdRef.current) {
+        setCarregandoMassa(false);
+      }
     }
   }, [ehAdminGeral, condominioIdMassa, blocoIdMassa, filtroPublicoMassa]);
 
@@ -742,7 +1083,194 @@ export default function WhatsappCentral() {
     if (aba === 'massa') {
       void carregarDadosMassa();
     }
-  }, [aba, carregarDadosMassa]);
+    if (aba === 'automacao' && ehAdminGeral && !metaPerfil) {
+      api<{
+        perfil: NonNullable<typeof metaPerfil>;
+        numero: NonNullable<typeof metaNumeroInfo>;
+      }>('whatsapp_meta_perfil_obter')
+        .then((r) => {
+          setMetaPerfil(r.perfil);
+          setMetaNumeroInfo(r.numero);
+        })
+        .catch(() => {});
+    }
+  }, [aba, carregarDadosMassa, ehAdminGeral, metaPerfil]);
+
+  const carregarBilhetagem = useCallback(async () => {
+    if (!ehAdminGeral) return;
+    const reqId = ++reqBilhetagemIdRef.current;
+    setCarregandoBilhetagem(true);
+    try {
+      const r = await api<DadosBilhetagemWhatsapp>('whatsapp_bilhetagem_dados', {
+        query: {
+          periodo: periodoBilhetagem,
+          condominio_id: condominioFiltroBilhetagem,
+        },
+      });
+      if (reqId !== reqBilhetagemIdRef.current) return;
+      setDadosBilhetagem(r);
+      if (r.parametros) {
+        setFormParametrosBilhetagem(r.parametros);
+      }
+    } catch (e) {
+      if (reqId === reqBilhetagemIdRef.current) {
+        setAviso({ tipo: 'erro', texto: msgErro(e, 'Falha ao carregar bilhetagem e consumo de tokens.') });
+      }
+    } finally {
+      if (reqId === reqBilhetagemIdRef.current) {
+        setCarregandoBilhetagem(false);
+      }
+    }
+  }, [ehAdminGeral, periodoBilhetagem, condominioFiltroBilhetagem]);
+
+  useEffect(() => {
+    if (aba === 'bilhetagem') {
+      void carregarBilhetagem();
+    }
+  }, [aba, carregarBilhetagem]);
+
+  const salvarParametrosBilhetagem = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (salvandoParametrosBilhetagem) return;
+    setSalvandoParametrosBilhetagem(true);
+    setAviso(null);
+    try {
+      const r = await api<{ mensagem: string; parametros: BilhetagemParametros }>('whatsapp_bilhetagem_parametros_salvar', {
+        corpo: formParametrosBilhetagem as unknown as Record<string, unknown>,
+      });
+      setFormParametrosBilhetagem(r.parametros);
+      setAviso({ tipo: 'ok', texto: r.mensagem });
+      await carregarBilhetagem();
+    } catch (err) {
+      setAviso({ tipo: 'erro', texto: msgErro(err, 'Erro ao salvar parâmetros de bilhetagem.') });
+    } finally {
+      setSalvandoParametrosBilhetagem(false);
+    }
+  };
+
+  const atualizarPlanoCondominioWhatsapp = async (
+    cid: number,
+    patch: {
+      whatsapp_auto_ativo?: number;
+      whatsapp_ia_ativo?: number;
+      whatsapp_chat_condominio?: number;
+      plano_whatsapp_ia?: string;
+      valor_mensal_plano_zap_brl?: number;
+    },
+  ) => {
+    if (cid <= 0) return;
+    setSalvandoPlanoCondId(cid);
+    try {
+      const r = await api<{ mensagem: string }>('whatsapp_condominio_plano_salvar', {
+        corpo: {
+          condominio_id: cid,
+          ...patch,
+        },
+      });
+      setAviso({ tipo: 'ok', texto: r.mensagem });
+      await carregarBilhetagem();
+    } catch (err) {
+      setAviso({ tipo: 'erro', texto: msgErro(err, 'Erro ao atualizar plano do condomínio.') });
+    } finally {
+      setSalvandoPlanoCondId(null);
+    }
+  };
+
+  const exportarCsvBilhetagemCondominios = () => {
+    if (!dadosBilhetagem) return;
+    const cabecalho = [
+      'Condomínio',
+      'Cidade',
+      'Conversas',
+      'Atendimentos Suporte',
+      'Notificações Ativas',
+      'Mensagens Recebidas',
+      'Mensagens Enviadas',
+      'Templates Meta',
+      'Tokens Prompt',
+      'Tokens Resposta',
+      'Tokens Total',
+      '% Tokens',
+      'Tempo Médio IA (ms)',
+      'Custo Estimado Meta (R$)',
+      'Valor Bilhetado Suporte (R$)',
+      'Valor Bilhetado Notificações (R$)',
+      'Total Bilhetado Condomínio (R$)',
+    ];
+    const linhas = dadosBilhetagem.por_condominio.map((c) => [
+      `"${(c.condominio_nome || '').replace(/"/g, '""')}"`,
+      `"${(c.cidade || '').replace(/"/g, '""')}"`,
+      c.conversas_count,
+      c.atendimentos_suporte,
+      c.notificacoes_ativas,
+      c.msgs_in,
+      c.msgs_out,
+      c.templates_meta,
+      c.tokens_prompt,
+      c.tokens_resposta,
+      c.tokens_total,
+      c.participacao_tokens_pct.toFixed(1).replace('.', ','),
+      c.tempo_medio_ia_ms,
+      c.custo_total_meta_brl.toFixed(2).replace('.', ','),
+      c.valor_bilhetado_suporte_brl.toFixed(2).replace('.', ','),
+      c.valor_bilhetado_notificacoes_brl.toFixed(2).replace('.', ','),
+      c.valor_total_bilhetado_brl.toFixed(2).replace('.', ','),
+    ]);
+    const csv = '\uFEFF' + [cabecalho.join(';'), ...linhas.map((l) => l.join(';'))].join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `bilhetagem_condominios_whatsapp_${dadosBilhetagem.periodo}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportarCsvExtratoAtendimentos = () => {
+    if (!dadosBilhetagem) return;
+    const cabecalho = [
+      'Data/Hora',
+      'Condomínio',
+      'Morador / Contato',
+      'WhatsApp',
+      'Unidade',
+      'Tipo',
+      'Resolvido Por',
+      'Ciclos / Qtd',
+      'Msgs Recebidas',
+      'Msgs Enviadas',
+      'Templates Meta',
+      'Tokens Total',
+      'Tempo IA (ms)',
+      'Custo Meta (R$)',
+      'Valor Bilhetado (R$)',
+    ];
+    const linhas = dadosBilhetagem.extrato_atendimentos.map((it) => [
+      `"${formatarHoraMsg(it.ultima_interacao_em)}"`,
+      `"${(it.condominio_nome || '').replace(/"/g, '""')}"`,
+      `"${(it.nome_contato || '').replace(/"/g, '""')}"`,
+      `"${it.telefone}"`,
+      `"${(it.unidade_label || '').replace(/"/g, '""')}"`,
+      it.tipo_atendimento === 'atendimento_suporte' ? 'Atendimento Suporte' : 'Notificação Ativa',
+      `"${it.resolvedor}"`,
+      it.atendimentos_qtd,
+      it.msgs_in,
+      it.msgs_out,
+      it.templates_usados,
+      it.tokens_total,
+      it.tempo_medio_ia_ms,
+      it.custo_meta_brl.toFixed(4).replace('.', ','),
+      it.valor_bilhetado_brl.toFixed(2).replace('.', ','),
+    ]);
+    const csv = '\uFEFF' + [cabecalho.join(';'), ...linhas.map((l) => l.join(';'))].join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `extrato_atendimentos_whatsapp_${dadosBilhetagem.periodo}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   const executarDisparoMassa = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -790,6 +1318,7 @@ export default function WhatsappCentral() {
           telefones_selecionados: selecionados,
           enviar_push_app: enviarPushMassa,
           publicar_mural: publicarMuralMassa,
+          botoes_recadastramento: botoesRecadMassa,
         },
       });
       setAviso({ tipo: r.tipo === 'ok' ? 'ok' : 'erro', texto: r.mensagem });
@@ -1024,6 +1553,7 @@ export default function WhatsappCentral() {
         corpo: {
           pergunta: perguntaTesteIa.trim(),
           ia_modelo: formCfg?.ia_modelo,
+          condominio_id: condominioSimuladorIa,
         },
       });
       setRespostaTesteIa(`🤖 [${r.modelo || formCfg?.ia_modelo || 'IA'}]:\n${r.sugestao}`);
@@ -1063,12 +1593,133 @@ export default function WhatsappCentral() {
     }
   };
 
+  const buscarAlvosVinculoWhatsapp = useCallback(
+    async (termo: string, cidAlvo?: number) => {
+      setBuscandoAlvo(true);
+      try {
+        const cidBusca = cidAlvo ?? (conversaAtiva?.condominio_id || condominioSelecionadoId || 0);
+        const r = await api<{ opcoes: OpcaoAlvoVinculoWhatsapp[] }>('whatsapp_buscar_moradores_vinculo', {
+          query: {
+            condominio_id: cidBusca,
+            busca: termo,
+          },
+        });
+        setOpcoesAlvoBusca(r.opcoes || []);
+      } catch {
+        setOpcoesAlvoBusca([]);
+      } finally {
+        setBuscandoAlvo(false);
+      }
+    },
+    [conversaAtiva?.condominio_id, condominioSelecionadoId],
+  );
+
+  const abrirModalVincularMidiaChat = (msg: MensagemWhatsapp, acaoInicial: 'documento' | 'foto_facial') => {
+    const ehPdf = Boolean(msg.midia_tipo === 'document' || (msg.midia_url || '').toLowerCase().endsWith('.pdf'));
+    setModalVincularMidia({ msg, ehPdf });
+    setAcaoVinculoMidia(ehPdf ? 'documento' : acaoInicial);
+    setCategoriaVinculoMidia('contrato_locacao');
+    setTituloVinculoMidia('');
+    setValidadeVinculoMidia('');
+    setObsVinculoMidia('');
+
+    if (conversaAtiva && (conversaAtiva.usuario_id || conversaAtiva.precadastro_id)) {
+      setAlvoSelecionadoVinculo({
+        tipo_alvo: conversaAtiva.usuario_id ? 'morador' : 'precadastro',
+        usuario_id: conversaAtiva.usuario_id,
+        precadastro_id: conversaAtiva.precadastro_id ?? null,
+        condominio_id: conversaAtiva.condominio_id,
+        condominio_nome: conversaAtiva.condominio_nome || '',
+        unidade_id: conversaAtiva.morador_unidade_id ?? null,
+        nome: conversaAtiva.precadastro_nome || conversaAtiva.nome_contato || conversaAtiva.telefone,
+        cpf: conversaAtiva.cpf_confirmado || conversaAtiva.morador_cpf || '',
+        telefone: conversaAtiva.telefone,
+        relacao: conversaAtiva.usuario_id ? conversaAtiva.morador_relacao || 'Morador' : 'Pré-cadastro Pendente',
+        unidade_label: conversaAtiva.unidade_label || 'Unidade vinculada',
+      });
+      setMostrandoBuscaAlvo(false);
+      setBuscaAlvoTexto('');
+    } else {
+      setAlvoSelecionadoVinculo(null);
+      setMostrandoBuscaAlvo(true);
+      const nomeLimpo =
+        conversaAtiva?.nome_contato && conversaAtiva.nome_contato.replace(/\D/g, '') !== conversaAtiva.telefone.replace(/\D/g, '')
+          ? conversaAtiva.nome_contato.split(' ')[0]
+          : '';
+      setBuscaAlvoTexto(nomeLimpo);
+      void buscarAlvosVinculoWhatsapp(nomeLimpo, conversaAtiva?.condominio_id || condominioSelecionadoId || 0);
+    }
+  };
+
+  const abrirModalVincularConversa = () => {
+    if (!conversaAtiva) return;
+    setModalVincularConversaAberto(true);
+    const nomeLimpo =
+      conversaAtiva.nome_contato && conversaAtiva.nome_contato.replace(/\D/g, '') !== conversaAtiva.telefone.replace(/\D/g, '')
+        ? conversaAtiva.nome_contato.split(' ')[0]
+        : '';
+    setBuscaAlvoTexto(nomeLimpo);
+    void buscarAlvosVinculoWhatsapp(nomeLimpo, conversaAtiva.condominio_id || condominioSelecionadoId || 0);
+  };
+
+  const vincularConversaAoMorador = async (op: OpcaoAlvoVinculoWhatsapp) => {
+    if (!conversaAtiva || !op.usuario_id) return;
+    setSalvandoVinculoMidia(true);
+    try {
+      const r = await api<{ mensagem: string }>('whatsapp_vincular_conversa_morador', {
+        corpo: {
+          conversa_id: conversaAtiva.id,
+          usuario_id: op.usuario_id,
+        },
+      });
+      setAviso({ tipo: 'ok', texto: r.mensagem });
+      setModalVincularConversaAberto(false);
+      await carregarMensagens(conversaAtiva.id, false, true);
+      await carregarConversas(true);
+    } catch (err) {
+      setAviso({ tipo: 'erro', texto: msgErro(err) });
+    } finally {
+      setSalvandoVinculoMidia(false);
+    }
+  };
+
+  const confirmarVinculoMidiaMorador = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!modalVincularMidia || !alvoSelecionadoVinculo || salvandoVinculoMidia) return;
+    setSalvandoVinculoMidia(true);
+    setAviso(null);
+    try {
+      const r = await api<{ mensagem: string }>('whatsapp_vincular_midia_morador', {
+        corpo: {
+          mensagem_id: modalVincularMidia.msg.id,
+          usuario_id: alvoSelecionadoVinculo.usuario_id ?? 0,
+          precadastro_id: alvoSelecionadoVinculo.precadastro_id ?? 0,
+          acao: acaoVinculoMidia,
+          categoria: categoriaVinculoMidia,
+          titulo: tituloVinculoMidia.trim(),
+          validade_contrato: categoriaVinculoMidia === 'contrato_locacao' ? validadeVinculoMidia : '',
+          observacao: obsVinculoMidia.trim(),
+        },
+      });
+      setAviso({ tipo: 'ok', texto: r.mensagem });
+      setModalVincularMidia(null);
+      if (conversaAtiva?.id) {
+        await carregarMensagens(conversaAtiva.id, false, true);
+      }
+      await carregarConversas(true);
+    } catch (err) {
+      setAviso({ tipo: 'erro', texto: msgErro(err) });
+    } finally {
+      setSalvandoVinculoMidia(false);
+    }
+  };
+
   const evoConectado = Boolean(painel?.evolution.conectado);
   const usandoMetaOficial = (formCfg?.provedor_ativo ?? painel?.config.provedor_ativo ?? 'meta_oficial') === 'meta_oficial';
   const iaOnline = Boolean(painel?.ia_servidor.online);
   const pm2Online = Boolean(painel?.fila_antiban?.pm2_online);
 
-  if (!ehAdminGeral) {
+  if (!podeAcessarChat) {
     return <Navigate to="/" replace />;
   }
 
@@ -1097,9 +1748,9 @@ export default function WhatsappCentral() {
             >
               {contadoresConv.abertas}
             </span>
-            {(painel?.estatisticas.nao_lidas ?? 0) > 0 && (
+            {((ehAdminGeral ? painel?.estatisticas.nao_lidas : contadoresConv.nao_lidas) ?? 0) > 0 && (
               <span className="px-1.5 py-0.5 rounded-full bg-rose-500 text-white text-[10px]">
-                {painel?.estatisticas.nao_lidas} novas
+                {ehAdminGeral ? painel?.estatisticas.nao_lidas : contadoresConv.nao_lidas} novas
               </span>
             )}
           </button>
@@ -1121,77 +1772,105 @@ export default function WhatsappCentral() {
             </button>
           )}
 
-          <button
-            type="button"
-            onClick={() => setAba('massa')}
-            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs sm:text-sm font-extrabold transition cursor-pointer ${
-              aba === 'massa'
-                ? 'bg-amber-600 text-white shadow-2xs'
-                : 'text-slate-700 hover:bg-slate-100'
-            }`}
-          >
-            <Megaphone size={15} />
-            <span>📢 Disparo em Massa</span>
-          </button>
+          {!ehAdminGeral && (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-teal-50 border border-teal-200 text-teal-900 text-xs font-extrabold">
+              <Building2 size={14} className="text-teal-700 shrink-0" />
+              <span>{usuario?.condominio_nome || 'Meu Condomínio'} • Somente Moradores Vinculados</span>
+            </span>
+          )}
 
-          <button
-            type="button"
-            onClick={() => setAba('automacao')}
-            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs sm:text-sm font-extrabold transition cursor-pointer ${
-              aba === 'automacao'
-                ? 'bg-blue-600 text-white shadow-2xs'
-                : 'text-slate-700 hover:bg-slate-100'
-            }`}
-          >
-            <Zap size={15} />
-            <span>Templates &amp; Regras</span>
-          </button>
+          {ehAdminGeral && (
+            <>
+              <button
+                type="button"
+                onClick={() => setAba('massa')}
+                className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs sm:text-sm font-extrabold transition cursor-pointer ${
+                  aba === 'massa'
+                    ? 'bg-amber-600 text-white shadow-2xs'
+                    : 'text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                <Megaphone size={15} />
+                <span>📢 Disparo em Massa</span>
+              </button>
 
-          <button
-            type="button"
-            onClick={() => setAba('ia_config')}
-            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs sm:text-sm font-extrabold transition cursor-pointer ${
-              aba === 'ia_config'
-                ? 'bg-violet-600 text-white shadow-2xs'
-                : 'text-slate-700 hover:bg-slate-100'
-            }`}
-          >
-            <Bot size={15} />
-            <span>⚙️ IA &amp; API Meta</span>
-          </button>
+              <button
+                type="button"
+                onClick={() => setAba('bilhetagem')}
+                className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs sm:text-sm font-extrabold transition cursor-pointer ${
+                  aba === 'bilhetagem'
+                    ? 'bg-teal-700 text-white shadow-2xs'
+                    : 'text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                <Building2 size={15} />
+                <span>💰 Bilhetagem &amp; Tokens</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setAba('automacao')}
+                className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs sm:text-sm font-extrabold transition cursor-pointer ${
+                  aba === 'automacao'
+                    ? 'bg-blue-600 text-white shadow-2xs'
+                    : 'text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                <Zap size={15} />
+                <span>Templates &amp; Regras</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setAba('ia_config')}
+                className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs sm:text-sm font-extrabold transition cursor-pointer ${
+                  aba === 'ia_config'
+                    ? 'bg-violet-600 text-white shadow-2xs'
+                    : 'text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                <Bot size={15} />
+                <span>⚙️ IA &amp; API Meta</span>
+              </button>
+            </>
+          )}
         </div>
 
         {/* Pílulas Compactas de Status na Direita (sem ocupar espaço vertical do Chat) */}
         <div className="flex items-center gap-1.5 flex-wrap">
-          <button
-            type="button"
-            onClick={() => setAba('ia_config')}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-[11px] font-extrabold text-emerald-900 cursor-pointer"
-            title="Clique para ver configurações da API Oficial da Meta"
-          >
-            <span className={`w-2 h-2 rounded-full ${evoConectado ? 'bg-emerald-500' : 'bg-rose-500'}`} />
-            <span>{usandoMetaOficial ? 'Meta Oficial' : 'Evolution QR'}</span>
-          </button>
+          {ehAdminGeral && (
+            <>
+              <button
+                type="button"
+                onClick={() => setAba('ia_config')}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-[11px] font-extrabold text-emerald-900 cursor-pointer"
+                title="Clique para ver configurações da API Oficial da Meta"
+              >
+                <span className={`w-2 h-2 rounded-full ${evoConectado ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                <span>{usandoMetaOficial ? 'Meta Oficial' : 'Evolution QR'}</span>
+              </button>
 
-          {formCfg && (
-            <button
-              type="button"
-              onClick={() => setAba('ia_config')}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-[11px] font-extrabold cursor-pointer ${
-                formCfg.ia_ativa
-                  ? 'bg-violet-50 hover:bg-violet-100 border-violet-200 text-violet-900'
-                  : 'bg-slate-100 border-slate-200 text-slate-600'
-              }`}
-              title="Modelo LLM em uso (clique para alterar modelo ou configurar IA)"
-            >
-              <span>🤖 {formCfg.ia_ativa ? formCfg.ia_modelo || 'qwen2.5:14b' : 'IA Pausada'}</span>
-            </button>
+              {formCfg && (
+                <button
+                  type="button"
+                  onClick={() => setAba('ia_config')}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-[11px] font-extrabold cursor-pointer ${
+                    formCfg.ia_ativa
+                      ? 'bg-violet-50 hover:bg-violet-100 border-violet-200 text-violet-900'
+                      : 'bg-slate-100 border-slate-200 text-slate-600'
+                  }`}
+                  title="Modelo LLM em uso (clique para alterar modelo ou configurar IA)"
+                >
+                  <span>🤖 {formCfg.ia_ativa ? formCfg.ia_modelo || 'qwen2.5:14b' : 'IA Pausada'}</span>
+                </button>
+              )}
+            </>
           )}
 
           <button
             type="button"
             onClick={() => {
-              carregarPainel();
+              if (ehAdminGeral) carregarPainel();
               carregarConversas();
             }}
             className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-xs font-extrabold text-slate-700 cursor-pointer transition"
@@ -1203,8 +1882,8 @@ export default function WhatsappCentral() {
         </div>
       </div>
 
-      {/* Cards Técnicos Detalhados — Exibidos apenas fora da aba de Chat para manter a tela de atendimento limpa */}
-      {aba !== 'chat' && (
+      {/* Cards Técnicos Detalhados — Exibidos apenas para Superadmin nas abas de configuração técnica */}
+      {ehAdminGeral && (aba === 'automacao' || aba === 'ia_config') && (
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
         {/* Card 1: API Oficial da Meta (Cloud API) / Evolution API */}
         <div className="bg-white rounded-2xl border border-slate-200/90 p-3.5 shadow-2xs flex flex-col justify-between gap-2.5">
@@ -1884,6 +2563,46 @@ export default function WhatsappCentral() {
 
                   {/* Botões de Controle Rápido da Conversa */}
                   <div className="flex items-center gap-1.5 flex-wrap">
+                    {(conversaAtiva.usuario_id || conversaAtiva.precadastro_id) && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setModalPastaDocsChat({
+                            nomePessoa:
+                              conversaAtiva.precadastro_nome ||
+                              conversaAtiva.nome_contato ||
+                              formatarTelefoneExibicao(conversaAtiva.telefone),
+                            subtituloUnidade: conversaAtiva.unidade_label || conversaAtiva.condominio_nome,
+                            relacaoSugerida: conversaAtiva.morador_relacao || null,
+                            usuarioId: conversaAtiva.usuario_id,
+                            unidadeId: conversaAtiva.morador_unidade_id ?? null,
+                            precadastroId: conversaAtiva.usuario_id ? null : (conversaAtiva.precadastro_id ?? null),
+                          })
+                        }
+                        className="px-2.5 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-900 border border-blue-300 text-xs font-extrabold flex items-center gap-1 cursor-pointer"
+                        title="Abrir pasta de contratos e documentos vinculados ao cadastro deste morador"
+                      >
+                        <FolderOpen size={13} />
+                        <span>Documentos</span>
+                        {(conversaAtiva.qtd_documentos ?? 0) > 0 && (
+                          <span className="px-1.5 py-0.2 rounded-full bg-blue-600 text-white text-[10px] font-extrabold">
+                            {conversaAtiva.qtd_documentos}
+                          </span>
+                        )}
+                      </button>
+                    )}
+
+                    {!conversaAtiva.usuario_id && (
+                      <button
+                        type="button"
+                        onClick={abrirModalVincularConversa}
+                        className="px-2.5 py-1.5 rounded-xl bg-teal-50 hover:bg-teal-100 text-teal-900 border border-teal-300 text-xs font-extrabold flex items-center gap-1 cursor-pointer"
+                        title="Vincular esta conversa ao cadastro de um morador do condomínio"
+                      >
+                        <Link2 size={13} /> Vincular Perfil
+                      </button>
+                    )}
+
                     {conversaAtiva.usuario_id && (
                       <button
                         type="button"
@@ -2043,13 +2762,51 @@ export default function WhatsappCentral() {
 
                             {m.midia_url && (
                               <div className="mb-2 rounded-xl overflow-hidden border border-black/10 bg-black/5">
-                                <a href={m.midia_url} target="_blank" rel="noreferrer" title="Abrir imagem em tamanho real">
-                                  <img
-                                    src={m.midia_url}
-                                    alt="Anexo enviado"
-                                    className="w-full max-h-64 object-cover hover:opacity-95 transition"
-                                  />
-                                </a>
+                                {m.midia_tipo === 'document' || m.midia_url.toLowerCase().endsWith('.pdf') ? (
+                                  <a
+                                    href={m.midia_url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="flex items-center gap-2 px-3.5 py-2.5 bg-white/95 hover:bg-white text-rose-800 font-extrabold text-xs transition"
+                                    title="Abrir documento PDF"
+                                  >
+                                    <span className="px-2 py-1 rounded bg-rose-100 text-rose-700 text-[10px] font-extrabold">PDF</span>
+                                    <span>📄 Abrir Documento PDF Anexado</span>
+                                  </a>
+                                ) : (
+                                  <a href={m.midia_url} target="_blank" rel="noreferrer" title="Abrir imagem em tamanho real">
+                                    <img
+                                      src={m.midia_url}
+                                      alt="Anexo enviado"
+                                      className="w-full max-h-64 object-cover hover:opacity-95 transition"
+                                    />
+                                  </a>
+                                )}
+
+                                {!enviada && (
+                                  <div className="px-2.5 py-1.5 bg-slate-50/95 border-t border-slate-200/80 flex items-center gap-1.5 flex-wrap">
+                                    <button
+                                      type="button"
+                                      onClick={() => abrirModalVincularMidiaChat(m, 'documento')}
+                                      className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-extrabold inline-flex items-center gap-1 cursor-pointer shadow-2xs transition"
+                                      title="Vincular este arquivo (Contrato, RG/CNH, Escritura, CRLV...) à pasta de documentos do morador"
+                                    >
+                                      <Paperclip size={11} />
+                                      <span>Vincular ao Cadastro</span>
+                                    </button>
+                                    {!(m.midia_tipo === 'document' || m.midia_url.toLowerCase().endsWith('.pdf')) && (
+                                      <button
+                                        type="button"
+                                        onClick={() => abrirModalVincularMidiaChat(m, 'foto_facial')}
+                                        className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-extrabold inline-flex items-center gap-1 cursor-pointer shadow-2xs transition"
+                                        title="Usar esta foto como biometria facial do morador e sincronizar com os leitores da portaria"
+                                      >
+                                        <ScanFace size={11} />
+                                        <span>Usar como Foto Facial</span>
+                                      </button>
+                                    )}
+                                  </div>
+                                )}
                               </div>
                             )}
 
@@ -2065,8 +2822,26 @@ export default function WhatsappCentral() {
                                       ⏳ Retida pela Janela de 24h da Meta (#131047)
                                     </div>
                                     <p className="text-[11px] text-slate-700 font-medium leading-snug">
-                                      Na API Oficial da Meta, o primeiro contato ativo exige que o <b>Template Oficial</b> esteja aprovado pela Meta (atualmente <i>Em Análise / PENDING</i>) ou que o morador tenha enviado mensagem nas últimas 24h.{' '}
+                                      Na API Oficial da Meta, o primeiro contato ativo exige que o <b>Template Oficial</b> esteja aprovado pela Meta ou que o morador tenha enviado mensagem nas últimas 24h.{' '}
                                       <b>Assim que este morador mandar um &ldquo;Oi&rdquo;, o sistema entregará este acesso automaticamente!</b>
+                                    </p>
+                                  </>
+                                ) : m.erro_detalhe.includes('131048') ? (
+                                  <>
+                                    <div className="font-extrabold text-amber-950 flex items-center gap-1">
+                                      ⏳ Limite Diário de 24h da Meta Atingido (#131048 — Sem Bloqueio por Spam)
+                                    </div>
+                                    <p className="text-[11px] text-slate-700 font-medium leading-snug">
+                                      A qualidade do seu número continua <b>VERDE (Alta)</b>, mas o Portfólio Empresarial na Meta atingiu a cota reduzida de 24h porque ainda falta concluir a <b>Verificação da Empresa (CNPJ)</b> no Meta Business Suite.
+                                    </p>
+                                  </>
+                                ) : m.erro_detalhe.includes('131026') ? (
+                                  <>
+                                    <div className="font-extrabold text-rose-800 flex items-center gap-1">
+                                      📵 Número sem WhatsApp Ativo (#131026)
+                                    </div>
+                                    <p className="text-[11px] text-slate-700 font-medium leading-snug">
+                                      A Meta informou que este telefone da planilha não possui conta ativa no WhatsApp (linha fixa ou desativada).
                                     </p>
                                   </>
                                 ) : (
@@ -2142,14 +2917,41 @@ export default function WhatsappCentral() {
 
                   <button
                     type="button"
+                    onClick={() => {
+                      const primeiroNome = conversaAtiva.nome_contato?.split(' ')[0] || 'Morador';
+                      const cpfLimpo = (conversaAtiva.cpf_confirmado || conversaAtiva.morador_cpf || '').replace(/\D/g, '');
+                      const loginTexto = cpfLimpo ? `*${cpfLimpo}*` : 'seu *CPF (apenas os 11 números)*';
+                      setTextoEnvio(
+                        `Olá, *${primeiroNome}*! Seguem os seus dados de acesso ao aplicativo *Sectrum Condomínio*: ✅\n\n` +
+                          `👤 *Login (CPF):* ${loginTexto}\n` +
+                          `🔑 *Senha Padrão:* *mudar@123* _(no 1º acesso você criará sua senha pessoal)_\n\n` +
+                          `📲 *Como instalar e acessar no seu celular:*\n` +
+                          `🤖 *Android (Google Play):* toque no link abaixo, clique em *Instalar*, abra o app e entre com seu CPF e senha:\n` +
+                          `https://play.google.com/store/apps/details?id=br.seg.vps.cond.sectrum\n\n` +
+                          `🍎 *iPhone / iOS (App Store):* toque no link abaixo, clique em *Obter*, abra o app e entre com seu CPF e senha:\n` +
+                          `https://apps.apple.com/app/sectrum-condominio/id6826756502`,
+                      );
+                    }}
+                    className="px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-900 text-[11px] font-extrabold shrink-0 cursor-pointer"
+                  >
+                    🔑 Acessos + Lojas (Android / iOS)
+                  </button>
+
+                  <button
+                    type="button"
                     onClick={() =>
                       setTextoEnvio(
-                        `Oi, *${conversaAtiva.nome_contato?.split(' ')[0] || 'Morador'}*! O acesso ao app é em https://cond.vps.seg.br usando seu CPF. Se quiser que eu resete sua senha para *mudar@123*, é só me confirmar!`,
+                        `Oi, *${conversaAtiva.nome_contato?.split(' ')[0] || 'Morador'}*! Baixe o aplicativo oficial *Sectrum Condomínio* na loja do seu celular: 📲\n\n` +
+                          `🤖 *Android (Google Play):* toque abaixo e clique em *Instalar*:\n` +
+                          `https://play.google.com/store/apps/details?id=br.seg.vps.cond.sectrum\n\n` +
+                          `🍎 *iPhone / iOS (App Store):* toque abaixo e clique em *Obter*:\n` +
+                          `https://apps.apple.com/app/sectrum-condominio/id6826756502\n\n` +
+                          `Depois é só abrir o aplicativo e entrar com o seu *CPF* e sua senha!`,
                       )
                     }
                     className="px-2.5 py-1 rounded-lg bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 text-[11px] font-bold shrink-0 cursor-pointer"
                   >
-                    🔑 App / Senha (mudar@123)
+                    🍎🤖 Links Lojas (Android / iOS)
                   </button>
 
                   <button
@@ -2313,6 +3115,7 @@ export default function WhatsappCentral() {
             .replace(/\{unidade\}/g, exemploDest.unidade_label)
             .replace(/\{ramal\}/g, exemploDest.ramal)
             .replace(/\{cpf\}/g, exemploDest.cpf || '')
+            .replace(/\{link_recadastramento\}/g, linkRecadMassa)
             .replace(/\{link_app\}/g, 'https://cond.vps.seg.br');
           return tituloMassa.trim() && !base.includes(tituloMassa.trim())
             ? `*${tituloMassa.trim()}*\n\n${base}`
@@ -2321,6 +3124,42 @@ export default function WhatsappCentral() {
 
         return (
           <div className="space-y-5">
+            {usandoMetaOficial && saudeMetaMassa && !saudeMetaMassa.liberado_iniciar_conversa && (
+              <div className="rounded-2xl border-2 border-amber-300 bg-amber-50/95 p-4 shadow-xs space-y-2.5">
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                  <div className="space-y-1 max-w-4xl">
+                    <div className="text-sm font-extrabold text-amber-950 flex items-center gap-2 flex-wrap">
+                      <span>⏳ Cota Móvel de 24h da Meta Atingida para Novas Conversas</span>
+                      <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-300 text-[11px] font-extrabold">
+                        🟢 Qualidade: {saudeMetaMassa.quality_rating || 'GREEN'} (Sem Spam)
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-800 leading-relaxed font-medium">
+                      <b>Fique tranquilo: seu número NÃO foi punido por spam!</b> O bloqueio temporário de novas conversas ativas ocorre porque o Portfólio Empresarial (ID <code className="bg-amber-100 px-1 rounded font-bold">{saudeMetaMassa.business_id}</code>) ainda não concluiu a <b>Verificação da Empresa (CNPJ)</b> no Meta Business Suite — contas não verificadas possuem um teto reduzido por janela móvel de 24h.{' '}
+                      <b>Moradores que enviarem mensagem primeiro continuam sendo atendidos normalmente!</b>
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap shrink-0">
+                    <a
+                      href={saudeMetaMassa.link_verificacao_meta}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-extrabold shadow-xs transition"
+                    >
+                      🏢 Verificar CNPJ no Meta Business (Liberar 1.000+/dia)
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => void carregarDadosMassa()}
+                      className="px-3 py-2 rounded-xl bg-white hover:bg-amber-100 border border-amber-300 text-amber-950 text-xs font-extrabold cursor-pointer transition"
+                    >
+                      🔄 Revalidar Cota
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
               {/* Coluna Esquerda: Configuração do Comunicado, Foto e Disparo */}
               <form
@@ -2358,6 +3197,9 @@ export default function WhatsappCentral() {
                       onChange={(e) => {
                         setCondominioIdMassa(Number(e.target.value));
                         setBlocoIdMassa(0);
+                        setBuscaDestMassa('');
+                        setBlocosMassa([]);
+                        setDestinatariosMassa([]);
                         setTelefonesDesmarcadosMassa(new Set());
                       }}
                       className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs sm:text-sm font-extrabold text-slate-900 outline-none focus:border-amber-500"
@@ -2365,7 +3207,8 @@ export default function WhatsappCentral() {
                       <option value={0}>🌐 Todos os Condomínios</option>
                       {condominiosMassa.map((c) => (
                         <option key={c.id} value={c.id}>
-                          🏢 {c.nome} ({c.total_moradores_fone} moradores / {c.total_conversas} chats)
+                          🏢 {c.nome} ({c.total_moradores_fone} moradores
+                          {c.total_planilha_fone ? ` / ${c.total_planilha_fone} planilha` : ''} / {c.total_conversas} chats)
                         </option>
                       ))}
                     </select>
@@ -2373,7 +3216,7 @@ export default function WhatsappCentral() {
 
                   <div>
                     <label className="block text-[11px] font-extrabold text-slate-700 mb-1">
-                      2. Filtrar Bloco (Opcional)
+                      2. Filtrar Rua / Bloco (Ondas)
                     </label>
                     <select
                       value={blocoIdMassa}
@@ -2384,7 +3227,7 @@ export default function WhatsappCentral() {
                       }}
                       className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white disabled:bg-slate-100 text-xs sm:text-sm font-bold text-slate-800 outline-none focus:border-amber-500"
                     >
-                      <option value={0}>Todos os Blocos</option>
+                      <option value={0}>Todos os Blocos / Ruas</option>
                       {blocosMassa.map((b) => (
                         <option key={b.id} value={b.id}>
                           {b.nome}
@@ -2401,14 +3244,15 @@ export default function WhatsappCentral() {
                       value={filtroPublicoMassa}
                       onChange={(e) => {
                         setFiltroPublicoMassa(
-                          e.target.value as 'todos' | 'apenas_moradores' | 'apenas_conversas',
+                          e.target.value as 'todos' | 'planilha_pendentes' | 'apenas_moradores' | 'apenas_conversas',
                         );
                         setTelefonesDesmarcadosMassa(new Set());
                       }}
                       className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs sm:text-sm font-bold text-slate-800 outline-none focus:border-amber-500"
                     >
-                      <option value="todos">Todos (Moradores + Chats WhatsApp)</option>
-                      <option value="apenas_moradores">Apenas Moradores Cadastrados</option>
+                      <option value="planilha_pendentes">📋 Planilha — Pendentes de Recadastramento</option>
+                      <option value="todos">Todos (Moradores + Planilha + Chats)</option>
+                      <option value="apenas_moradores">Apenas Moradores Já Cadastrados</option>
                       <option value="apenas_conversas">Apenas Conversas do WhatsApp</option>
                     </select>
                   </div>
@@ -2423,18 +3267,56 @@ export default function WhatsappCentral() {
                     <button
                       type="button"
                       onClick={() => {
+                        setFiltroPublicoMassa('planilha_pendentes');
+                        setEnviarPushMassa(false);
+                        setBotoesRecadMassa(true);
+                        setTituloMassa('🔐 Atualização Cadastral — Ativação dos Leitores de Entrada');
+                        setTextoMassa(
+                          'Olá, *{primeiro_nome}*! Comunicado da administração do *{condominio}* (*{unidade}*): estamos realizando o recadastramento oficial de segurança devido à *ativação dos leitores faciais de entrada* e para a *remoção de cadastros antigos de pessoas que já se mudaram*.\n\n' +
+                            'Toque na opção abaixo que corresponde à sua situação atual no imóvel (sem precisar digitar):',
+                        );
+                        void anexarBannerOficialRecadastramento();
+                      }}
+                      className="px-2.5 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-300 text-xs font-extrabold cursor-pointer transition"
+                    >
+                      🔐 Recadastramento + Menu 3 Botões (Planilha)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBotoesRecadMassa(false);
                         setTituloMassa('🚀 Atualização do Aplicativo Sectrum — Novas Funcionalidades!');
                         setTextoMassa(
                           'Olá, *{primeiro_nome}*! 👋\n\n' +
                             'Acabamos de liberar uma atualização com novas funcionalidades no aplicativo do *{condominio}* ({unidade}):\n\n' +
                             '🆘 *Novo Botão de Emergência (SOS):* Opções de *Emergência Médica* e *Segurança* que tocam sirene e alertam imediatamente os moradores do seu bloco, a Portaria e o Síndico.\n' +
                             '📞 *Interfone Digital Full-Duplex:* Agora você pode conversar em tempo real como numa chamada telefônica, alternar entre *🔊 Viva-Voz* e *👂 No Ouvido* e receber chamadas mesmo com a tela bloqueada.\n\n' +
-                            '📲 Acesse agora pelo link: {link_app}',
+                            '🤖 *Android (Google Play):* https://play.google.com/store/apps/details?id=br.seg.vps.cond.sectrum\n' +
+                            '🍎 *iPhone (App Store):* https://apps.apple.com/app/sectrum-condominio/id6826756502\n' +
+                            '🌐 *Acesso Web:* {link_app}',
                         );
                       }}
                       className="px-2.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 text-xs font-extrabold cursor-pointer transition"
                     >
                       🚀 Novidades / Atualização do App
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTituloMassa('📲 App Oficial Sectrum Disponível no Google Play (Android) e App Store (iPhone)!');
+                        setTextoMassa(
+                          'Olá, *{primeiro_nome}* ({unidade})! 👋\n\n' +
+                            'O aplicativo oficial do *{condominio}* já está disponível nas lojas oficiais para *Android (Google Play)* e *iPhone / iOS (App Store)*! 🎉\n\n' +
+                            '🤖 *No Android (Google Play):* toque abaixo e clique em *Instalar*:\nhttps://play.google.com/store/apps/details?id=br.seg.vps.cond.sectrum\n\n' +
+                            '🍎 *No iPhone / iOS (App Store):* toque abaixo e clique em *Obter*:\nhttps://apps.apple.com/app/sectrum-condominio/id6826756502\n\n' +
+                            '👤 *Seu Login (CPF):* {cpf}\n' +
+                            '📞 *Ramal do Interfone:* *{ramal}*',
+                        );
+                      }}
+                      className="px-2.5 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-900 border border-blue-300 text-xs font-extrabold cursor-pointer transition"
+                    >
+                      🤖🍎 App Oficial nas Lojas (Android &amp; iOS)
                     </button>
 
                     <button
@@ -2498,6 +3380,7 @@ export default function WhatsappCentral() {
                         '{condominio}',
                         '{unidade}',
                         '{ramal}',
+                        '{link_recadastramento}',
                         '{link_app}',
                       ].map((v) => (
                         <button
@@ -2575,7 +3458,15 @@ export default function WhatsappCentral() {
                       }}
                     />
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => void anexarBannerOficialRecadastramento()}
+                        className="px-3 py-2 rounded-xl bg-blue-50 hover:bg-blue-100 border border-blue-300 text-blue-900 text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                        title="Carrega automaticamente o card corporativo oficial da Sectrum (Canal Oficial Verificado + Leitores Faciais)"
+                      >
+                        🛡️ Usar Card Oficial Sectrum
+                      </button>
                       <button
                         type="button"
                         onClick={() => inputFotoMassaRef.current?.click()}
@@ -2613,31 +3504,65 @@ export default function WhatsappCentral() {
                   )}
                 </div>
 
-                {/* 5. Canais extras (Push no App + Mural de Avisos) */}
-                <div className="flex flex-wrap gap-3 pt-1">
-                  <label className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={enviarPushMassa}
-                      onChange={(e) => setEnviarPushMassa(e.target.checked)}
-                      className="w-4 h-4 accent-emerald-600"
-                    />
-                    <span className="text-xs font-extrabold text-emerald-950">
-                      📲 Enviar também Notificação Push nos celulares dos moradores
-                    </span>
-                  </label>
+                {/* 5. Menu de Botões Rápidos + Canais extras (Push no App + Mural de Avisos) */}
+                <div className="space-y-2.5 pt-1">
+                  <div className="p-3 rounded-xl bg-violet-50 border border-violet-200 flex items-start justify-between gap-3 flex-wrap">
+                    <label className="inline-flex items-start gap-2.5 cursor-pointer flex-1 min-w-[240px]">
+                      <input
+                        type="checkbox"
+                        checked={botoesRecadMassa}
+                        onChange={(e) => setBotoesRecadMassa(e.target.checked)}
+                        className="w-4 h-4 accent-violet-600 mt-0.5 shrink-0"
+                      />
+                      <div>
+                        <span className="block text-xs font-extrabold text-violet-950">
+                          🔘 Incluir Menu de 3 Botões Clicáveis (Sou Proprietário / Sou Inquilino / Não moro mais)
+                        </span>
+                        <span className="block text-[11px] text-violet-800 mt-0.5 leading-snug">
+                          Ao tocar em <b>Proprietário</b> ou <b>Inquilino</b>, o sistema envia na hora o link já com o bloco, apto e vínculo pré-selecionados! Ao tocar em <b>Não moro mais</b>, dá baixa automática no número.
+                        </span>
+                      </div>
+                    </label>
+                    {botoesRecadMassa && (
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold shrink-0 ${
+                          statusTplBotoesMeta === 'APPROVED'
+                            ? 'bg-emerald-200 text-emerald-950'
+                            : 'bg-amber-200 text-amber-950'
+                        }`}
+                      >
+                        {statusTplBotoesMeta === 'APPROVED'
+                          ? '✓ Template de Botões Aprovado na Meta'
+                          : '⏳ Template de Botões em Aprovação Meta (fallback 1/2/3 ativo)'}
+                      </span>
+                    )}
+                  </div>
 
-                  <label className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-blue-50 border border-blue-200 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={publicarMuralMassa}
-                      onChange={(e) => setPublicarMuralMassa(e.target.checked)}
-                      className="w-4 h-4 accent-blue-600"
-                    />
-                    <span className="text-xs font-extrabold text-blue-950">
-                      📌 Publicar também no Mural de Avisos do App
-                    </span>
-                  </label>
+                  <div className="flex flex-wrap gap-3">
+                    <label className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={enviarPushMassa}
+                        onChange={(e) => setEnviarPushMassa(e.target.checked)}
+                        className="w-4 h-4 accent-emerald-600"
+                      />
+                      <span className="text-xs font-extrabold text-emerald-950">
+                        📲 Enviar também Notificação Push nos celulares dos moradores
+                      </span>
+                    </label>
+
+                    <label className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-blue-50 border border-blue-200 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={publicarMuralMassa}
+                        onChange={(e) => setPublicarMuralMassa(e.target.checked)}
+                        className="w-4 h-4 accent-blue-600"
+                      />
+                      <span className="text-xs font-extrabold text-blue-950">
+                        📌 Publicar também no Mural de Avisos do App
+                      </span>
+                    </label>
+                  </div>
                 </div>
 
                 <div className="pt-2">
@@ -2666,22 +3591,47 @@ export default function WhatsappCentral() {
                   </div>
 
                   <div className="p-3.5 rounded-2xl bg-[#efeae2] border border-slate-200">
-                    <div className="max-w-[92%] ml-auto rounded-2xl rounded-tr-xs bg-[#d9fdd3] border border-[#bde9b6] p-3 shadow-xs text-xs text-slate-900 space-y-2">
-                      {fotoMassaBase64 && (
-                        <div className="rounded-xl overflow-hidden border border-black/10">
-                          <img
-                            src={fotoMassaBase64}
-                            alt="Preview WhatsApp"
-                            className="w-full max-h-52 object-cover"
-                          />
+                    <div className="max-w-[92%] ml-auto space-y-1.5">
+                      <div className="rounded-2xl rounded-tr-xs bg-[#d9fdd3] border border-[#bde9b6] p-3 shadow-xs text-xs text-slate-900 space-y-2">
+                        {fotoMassaBase64 && (
+                          <div className="rounded-xl overflow-hidden border border-black/10 bg-white">
+                            <img
+                              src={fotoMassaBase64}
+                              alt="Preview WhatsApp"
+                              className="w-full max-h-52 object-cover"
+                            />
+                          </div>
+                        )}
+                        <div className="whitespace-pre-wrap leading-relaxed break-words">
+                          {previewTextoRenderizado}
+                        </div>
+                        {botoesRecadMassa && (
+                          <div className="text-[10px] text-slate-500 pt-0.5">
+                            Canal Oficial do Condomínio • Sectrum
+                          </div>
+                        )}
+                        <div className="text-[10px] text-slate-500 text-right font-semibold">
+                          Agora • ✓✓
+                        </div>
+                      </div>
+
+                      {botoesRecadMassa && (
+                        <div className="space-y-1">
+                          {[
+                            'Sou Morador Proprietário',
+                            'Sou Morador Inquilino',
+                            'Não moro mais no local',
+                          ].map((lblBtn) => (
+                            <div
+                              key={lblBtn}
+                              className="w-full py-2 px-3 rounded-xl bg-white/95 border border-slate-200/90 shadow-2xs text-center text-[#00a884] font-bold text-xs flex items-center justify-center gap-1.5"
+                            >
+                              <span>↩</span>
+                              <span>{lblBtn}</span>
+                            </div>
+                          ))}
                         </div>
                       )}
-                      <div className="whitespace-pre-wrap leading-relaxed break-words">
-                        {previewTextoRenderizado}
-                      </div>
-                      <div className="text-[10px] text-slate-500 text-right font-semibold">
-                        Agora • ✓✓
-                      </div>
                     </div>
                   </div>
                 </div>
@@ -2769,6 +3719,11 @@ export default function WhatsappCentral() {
                                   <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 text-[10px] font-bold shrink-0">
                                     {d.unidade_label}
                                   </span>
+                                  {d.origem_cadastro === 'planilha_pendente' && (
+                                    <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-[9px] font-extrabold shrink-0">
+                                      📋 Planilha
+                                    </span>
+                                  )}
                                 </div>
                                 <div className="text-[10px] text-slate-500 flex items-center gap-1.5">
                                   <span>{formatarTelefoneExibicao(d.telefone)}</span>
@@ -2860,23 +3815,174 @@ export default function WhatsappCentral() {
       {aba === 'automacao' && formCfg && (
         <div className="space-y-5">
           {usandoMetaOficial ? (
-            <div className="bg-emerald-50/80 rounded-2xl border border-emerald-200 p-4 shadow-2xs flex items-center justify-between gap-3 flex-wrap">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
-                  <Zap size={20} />
-                </div>
-                <div>
-                  <h3 className="font-extrabold text-emerald-950 text-sm sm:text-base flex items-center gap-2 flex-wrap">
-                    Disparo Direto via API Oficial da Meta (WhatsApp Cloud API v22.0)
-                    <span className="px-2 py-0.5 rounded-full bg-emerald-200 text-emerald-900 text-[11px] font-extrabold">
-                      ⚡ Envio Instantâneo • Fila PM2 Desativada
-                    </span>
-                  </h3>
-                  <p className="text-xs text-emerald-800 mt-0.5">
-                    Como o sistema utiliza a <b>API Oficial da Meta</b>, não há risco de bloqueio por velocidade e não é necessário atrasar 7s–10s nem manter o daemon PM2 rodando na VPS. Todas as mensagens são entregues em tempo real!
-                  </p>
+            <div className="space-y-4">
+              <div className="bg-emerald-50/80 rounded-2xl border border-emerald-200 p-4 shadow-2xs flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                    <Zap size={20} />
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-emerald-950 text-sm sm:text-base flex items-center gap-2 flex-wrap">
+                      Disparo Direto via API Oficial da Meta (WhatsApp Cloud API v22.0)
+                      <span className="px-2 py-0.5 rounded-full bg-emerald-200 text-emerald-900 text-[11px] font-extrabold">
+                        ⚡ Envio Instantâneo • Fila PM2 Desativada
+                      </span>
+                    </h3>
+                    <p className="text-xs text-emerald-800 mt-0.5">
+                      Como o sistema utiliza a <b>API Oficial da Meta</b>, todas as mensagens são entregues em tempo real com identidade corporativa oficial!
+                    </p>
+                  </div>
                 </div>
               </div>
+
+              {/* CARD DE PERFIL COMERCIAL OFICIAL DO NÚMERO NA META (FOTO + RECADO + SELO VERIFICADO) */}
+              {metaPerfil && metaNumeroInfo && (
+                <div className="bg-white rounded-2xl border border-blue-200 p-5 shadow-sm space-y-4">
+                  <div className="flex items-center justify-between gap-3 flex-wrap border-b border-slate-100 pb-3.5">
+                    <div className="flex items-center gap-3.5">
+                      <div className="relative">
+                        <img
+                          src={fotoMetaNovaBase64 || metaPerfil.profile_picture_url || '/sectrum-whatsapp-perfil.jpg'}
+                          alt="Foto Oficial WhatsApp Sectrum"
+                          className="w-16 h-16 rounded-full object-cover border-2 border-blue-500 shadow-sm bg-slate-900"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => inputFotoMetaPerfilRef.current?.click()}
+                          className="absolute -bottom-1 -right-1 px-1.5 py-0.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-extrabold shadow cursor-pointer"
+                          title="Trocar foto de perfil do número na Meta"
+                        >
+                          📷
+                        </button>
+                        <input
+                          ref={inputFotoMetaPerfilRef}
+                          type="file"
+                          accept="image/jpeg,image/png"
+                          className="hidden"
+                          onChange={async (e) => {
+                            const f = e.target.files?.[0];
+                            e.target.value = '';
+                            if (!f) return;
+                            try {
+                              const b64 = await lerEComprimirImagemParaBase64(f);
+                              setFotoMetaNovaBase64(b64);
+                            } catch (err) {
+                              setAviso({ tipo: 'erro', texto: msgErro(err) });
+                            }
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-black text-slate-900 text-base">
+                            {metaNumeroInfo.verified_name} ({metaNumeroInfo.display_phone_number})
+                          </span>
+                          {metaNumeroInfo.is_official_business_account ? (
+                            <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 text-[11px] font-extrabold">
+                              ✔️ Selo Oficial Meta Ativo
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 text-[11px] font-extrabold">
+                              🛡️ Conta Comercial Oficial API Meta (Selo OBA Pendente de CNPJ)
+                            </span>
+                          )}
+                          <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[11px] font-extrabold">
+                            Qualidade: {metaNumeroInfo.quality_rating} • {metaNumeroInfo.messaging_limit_tier}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          Foto de perfil, recado e descrição que todos os moradores veem ao tocar no número oficial da Sectrum no WhatsApp.
+                        </p>
+                      </div>
+                    </div>
+
+                    {!metaNumeroInfo.is_official_business_account && (
+                      <a
+                        href="https://business.facebook.com/settings/security"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-extrabold no-underline shadow-2xs"
+                        title="Envia o CNPJ no Meta Business Suite para liberar o check azul/verde oficial ao lado de Sectrum e subir o limite para 1.000 disparos/dia"
+                      >
+                        ✔️ Ativar Selo Verificado Meta (Enviar CNPJ)
+                      </a>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-extrabold text-slate-700 mb-1">
+                        Recado / Status Oficial (até 139 caracteres)
+                      </label>
+                      <input
+                        maxLength={139}
+                        value={metaPerfil.about}
+                        onChange={(e) => setMetaPerfil({ ...metaPerfil, about: e.target.value })}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-semibold"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-extrabold text-slate-700 mb-1">
+                        Site Oficial no Perfil
+                      </label>
+                      <input
+                        value={metaPerfil.website}
+                        onChange={(e) => setMetaPerfil({ ...metaPerfil, website: e.target.value })}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-semibold"
+                      />
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="block text-[11px] font-extrabold text-slate-700 mb-1">
+                        Descrição Comercial Completa (visível na ficha oficial da empresa no WhatsApp)
+                      </label>
+                      <textarea
+                        rows={2}
+                        maxLength={512}
+                        value={metaPerfil.description}
+                        onChange={(e) => setMetaPerfil({ ...metaPerfil, description: e.target.value })}
+                        className="w-full p-2.5 rounded-xl border border-slate-300 text-xs"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3 flex-wrap pt-1">
+                    <div className="text-[11px] text-slate-500">
+                      Template Oficial com Cabeçalho de Foto (<code>comunicado_oficial_imagem</code>):{' '}
+                      <b className="text-slate-800">{metaNumeroInfo.template_imagem_status}</b>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={salvandoMetaPerfil}
+                      onClick={async () => {
+                        setSalvandoMetaPerfil(true);
+                        try {
+                          const r = await api<{ mensagem: string }>('whatsapp_meta_perfil_salvar', {
+                            corpo: {
+                              ...metaPerfil,
+                              foto_base64: fotoMetaNovaBase64 || undefined,
+                            },
+                          });
+                          setAviso({ tipo: 'ok', texto: r.mensagem });
+                          setFotoMetaNovaBase64('');
+                          const atualizado = await api<{
+                            perfil: NonNullable<typeof metaPerfil>;
+                            numero: NonNullable<typeof metaNumeroInfo>;
+                          }>('whatsapp_meta_perfil_obter');
+                          setMetaPerfil(atualizado.perfil);
+                          setMetaNumeroInfo(atualizado.numero);
+                        } catch (err) {
+                          setAviso({ tipo: 'erro', texto: msgErro(err) });
+                        } finally {
+                          setSalvandoMetaPerfil(false);
+                        }
+                      }}
+                      className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold cursor-pointer disabled:opacity-50"
+                    >
+                      {salvandoMetaPerfil ? 'Atualizando na Meta...' : '💾 Salvar Perfil Oficial na Meta'}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             /* Painel Superior: Blindagem Anti-Bloqueio (Meta) & Controle de Fila PM2 (Somente modo Evolution API) */
@@ -3179,7 +4285,7 @@ export default function WhatsappCentral() {
 
               <div className="flex flex-wrap gap-1.5">
                 <span className="text-[11px] font-bold text-slate-500 mr-1">Variáveis disponíveis:</span>
-                {['{primeiro_nome}', '{nome}', '{condominio}', '{unidade}', '{cpf}', '{senha}', '{ramal}', '{link_app}'].map((v) => (
+                {['{primeiro_nome}', '{nome}', '{condominio}', '{unidade}', '{cpf}', '{senha}', '{ramal}', '{link_android}', '{link_ios}', '{link_app}'].map((v) => (
                   <button
                     key={v}
                     type="button"
@@ -3392,17 +4498,20 @@ export default function WhatsappCentral() {
                 className="w-full p-3 rounded-xl border border-slate-300 text-xs sm:text-sm outline-none focus:border-violet-500"
               />
               <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                <div className="p-2.5 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-950 sm:col-span-2">
+                  <b>📦 Roteiro de Encomendas / Locker &amp; Módulos por Condomínio:</b> Antes de responder sobre encomendas, pacotes ou armário locker, a IA verifica se o módulo <b>Encomendas</b> está habilitado na ficha do condomínio: se <b>ativo</b>, dá andamento bem breve (pacotes/código de retirada); se <b>desabilitado</b>, informa educadamente que o módulo está desabilitado para aquele condomínio (valendo também para Reservas, Temporada e Ocorrências).
+                </div>
                 <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900">
                   <b>⏳ Consulta de Pré-Cadastro:</b> Verifica automaticamente no banco se o cadastro está <b>pendente de aprovação</b> ou <b>aprovado</b>.
                 </div>
                 <div className="p-2.5 rounded-xl bg-blue-50 border border-blue-200 text-blue-900">
-                  <b>🔐 Troca Segura de Senha:</b> Exige confirmar <b>CPF, Nome Completo, Bloco e Apartamento</b> antes de alterar a senha no chat.
+                  <b>🔐 Troca Segura de Senha:</b> Redefine para <b>mudar@123</b> validando automaticamente se o WhatsApp coincide com o celular cadastrado do morador.
                 </div>
                 <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900">
                   <b>📵 Aviso de Áudio/Vídeo:</b> Responde automaticamente que o atendimento não recebe áudios nem vídeos, apenas texto.
                 </div>
                 <div className="p-2.5 rounded-xl bg-violet-50 border border-violet-200 text-violet-900">
-                  <b>🎯 Zero Alucinação &amp; Textos Curtos:</b> Limita respostas a 3–4 linhas curtas e recusa assuntos fora do sistema.
+                  <b>🎯 Zero Alucinação &amp; Textos Curtos:</b> Limita respostas a 1–3 linhas curtas e recusa assuntos fora do sistema.
                 </div>
               </div>
             </div>
@@ -3415,6 +4524,13 @@ export default function WhatsappCentral() {
                   Testar Resposta do Servidor de IA Agora
                 </div>
                 <div className="flex flex-wrap gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setPerguntaTesteIa('Chegou alguma encomenda ou pacote no locker para mim?')}
+                    className="px-2 py-1 rounded-lg bg-indigo-600 border border-indigo-700 text-[10px] font-bold text-white hover:bg-indigo-700 cursor-pointer"
+                  >
+                    📦 Encomendas / Locker
+                  </button>
                   <button
                     type="button"
                     onClick={() => setPerguntaTesteIa('Meu cadastro já foi aprovado ou ainda está pendente?')}
@@ -3452,21 +4568,37 @@ export default function WhatsappCentral() {
                   </button>
                 </div>
               </div>
-              <div className="flex gap-2">
-                <input
-                  value={perguntaTesteIa}
-                  onChange={(e) => setPerguntaTesteIa(e.target.value)}
-                  className="flex-1 px-3 py-2 rounded-xl border border-violet-300 bg-white text-xs"
-                  placeholder="Digite uma pergunta como se fosse um morador..."
-                />
-                <button
-                  type="button"
-                  disabled={testandoIa}
-                  onClick={testarIaNoSimulador}
-                  className="px-3.5 py-2 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-xs font-extrabold cursor-pointer shrink-0 disabled:opacity-50"
+              <div className="flex flex-col sm:flex-row gap-2">
+                <select
+                  value={condominioSimuladorIa}
+                  onChange={(e) => setCondominioSimuladorIa(Number(e.target.value))}
+                  className="sm:w-72 px-2.5 py-2 rounded-xl border border-violet-300 bg-white text-xs font-semibold text-slate-800"
+                  title="Selecione o condomínio para simular os módulos ativos/desabilitados"
                 >
-                  {testandoIa ? 'Consultando...' : 'Testar IA'}
-                </button>
+                  <option value={0}>🔄 Sem condomínio definido (Triagem por CPF)</option>
+                  {(painel?.condominios_simulador || []).map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.nome} — {Number(c.modulo_encomendas) === 1 ? '📦 Encomendas ATIVO' : '🚫 Encomendas OFF'}
+                      {Number(c.app_habilitado) === 0 ? ' (Sem App)' : ''}
+                    </option>
+                  ))}
+                </select>
+                <div className="flex flex-1 gap-2">
+                  <input
+                    value={perguntaTesteIa}
+                    onChange={(e) => setPerguntaTesteIa(e.target.value)}
+                    className="flex-1 px-3 py-2 rounded-xl border border-violet-300 bg-white text-xs"
+                    placeholder="Digite uma pergunta como se fosse um morador..."
+                  />
+                  <button
+                    type="button"
+                    disabled={testandoIa}
+                    onClick={testarIaNoSimulador}
+                    className="px-3.5 py-2 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-xs font-extrabold cursor-pointer shrink-0 disabled:opacity-50"
+                  >
+                    {testandoIa ? 'Consultando...' : 'Testar IA'}
+                  </button>
+                </div>
               </div>
               {respostaTesteIa && (
                 <div className="p-3 rounded-xl bg-white border border-violet-200 text-xs text-slate-800 whitespace-pre-wrap">
@@ -3706,6 +4838,639 @@ export default function WhatsappCentral() {
         </div>
       )}
 
+      {/* ABA 5: CUSTO DA META VS. VALOR COBRADO DO CLIENTE (LAYOUT SIMPLES E LADO A LADO) */}
+      {aba === 'bilhetagem' && (
+        <div className="space-y-4">
+          {/* 1. Barra Superior Simples: Título e Filtros de Período / Condomínio */}
+          <div className="bg-white rounded-2xl border border-slate-200 px-4 py-3.5 shadow-2xs flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-teal-50 text-teal-700 border border-teal-200 flex items-center justify-center font-black text-base shrink-0">
+                💰
+              </div>
+              <div>
+                <h2 className="text-sm sm:text-base font-extrabold text-slate-900">
+                  Valor da Meta vs. Valor Cobrado do Cliente
+                </h2>
+                <p className="text-[11px] text-slate-500">
+                  Compare ao lado o custo que a Meta cobra e defina quanto sua empresa cobra de cada condomínio.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={periodoBilhetagem}
+                onChange={(e) =>
+                  setPeriodoBilhetagem(e.target.value as 'mes_atual' | 'mes_anterior' | '7d' | '30d' | '90d' | 'tudo')
+                }
+                className="px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-extrabold text-slate-800 cursor-pointer"
+              >
+                <option value="mes_atual">📅 Mês Atual</option>
+                <option value="mes_anterior">📅 Mês Anterior</option>
+                <option value="7d">⏱️ Últimos 7 dias</option>
+                <option value="30d">⏱️ Últimos 30 dias</option>
+                <option value="90d">⏱️ Últimos 90 dias</option>
+                <option value="tudo">🗂️ Todo o Histórico</option>
+              </select>
+
+              <select
+                value={condominioFiltroBilhetagem}
+                onChange={(e) => setCondominioFiltroBilhetagem(Number(e.target.value))}
+                className="px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-extrabold text-slate-800 cursor-pointer max-w-[240px]"
+              >
+                <option value={0}>🏢 Todos os Condomínios</option>
+                {(dadosBilhetagem?.por_condominio ?? []).map((cd) => (
+                  <option key={cd.condominio_id} value={cd.condominio_id}>
+                    {cd.condominio_nome}
+                  </option>
+                ))}
+              </select>
+
+              <button
+                type="button"
+                onClick={exportarCsvBilhetagemCondominios}
+                disabled={!dadosBilhetagem}
+                className="px-3 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-extrabold inline-flex items-center gap-1.5 cursor-pointer shadow-2xs"
+              >
+                <span>📥 Exportar Planilha</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => void carregarBilhetagem()}
+                disabled={carregandoBilhetagem}
+                className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 cursor-pointer"
+                title="Atualizar dados"
+              >
+                <RefreshCw size={14} className={carregandoBilhetagem ? 'animate-spin' : ''} />
+              </button>
+            </div>
+          </div>
+
+          {/* 2. TABELA LADO A LADO: O QUE A META COBRA vs. O QUE SUA EMPRESA COBRA DO CLIENTE */}
+          <form
+            onSubmit={salvarParametrosBilhetagem}
+            className="bg-white rounded-2xl border border-slate-200 p-4 shadow-2xs space-y-3"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="text-xs sm:text-sm font-extrabold text-slate-900">
+                  ⚖️ Tabela de Preços Unitários: Custo da Meta vs. Preço da Sua Empresa
+                </h3>
+                <p className="text-[11px] text-slate-500">
+                  À esquerda está o custo cobrado pela Meta e, ao lado direito, o valor que você vai cobrar do condomínio.
+                </p>
+              </div>
+              <button
+                type="submit"
+                disabled={salvandoParametrosBilhetagem}
+                className="px-4 py-2 rounded-xl bg-teal-700 hover:bg-teal-800 text-white text-xs font-extrabold cursor-pointer shadow-2xs disabled:opacity-50"
+              >
+                {salvandoParametrosBilhetagem ? 'Salvando...' : '💾 Salvar Valores'}
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              {/* ITEM 1: MENSAGEM AUTOMÁTICA (ENCOMENDAS / CADASTRO / AVISOS) */}
+              <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 space-y-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <div className="text-xs font-extrabold text-slate-900">
+                      🔔 1. Mensagem Automática (Encomendas, Cadastros e Avisos)
+                    </div>
+                    <div className="text-[11px] text-slate-500">
+                      Cada aviso disparado automaticamente pelo sistema para o WhatsApp do morador
+                    </div>
+                  </div>
+                  <span className="px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-900 text-[11px] font-extrabold shrink-0">
+                    Lucro:{' '}
+                    {formatarMoedaBrl(
+                      Math.max(
+                        0,
+                        Number(formParametrosBilhetagem.valor_bilhete_notificacao_brl || 0) -
+                          Number(formParametrosBilhetagem.custo_template_utilidade_brl || 0),
+                      ),
+                      3,
+                    )}
+                    /msg
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 pt-1">
+                  <div className="p-2.5 rounded-xl bg-rose-50/70 border border-rose-200">
+                    <label className="block text-[11px] font-extrabold text-rose-900 mb-1">
+                      📉 Valor que a Meta Cobra (R$)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.001"
+                      min="0"
+                      value={formParametrosBilhetagem.custo_template_utilidade_brl}
+                      onChange={(e) =>
+                        setFormParametrosBilhetagem({
+                          ...formParametrosBilhetagem,
+                          custo_template_utilidade_brl: parseFloat(e.target.value) || 0,
+                        })
+                      }
+                      className="w-full px-3 py-1.5 rounded-lg border border-rose-300 bg-white text-sm font-black text-rose-900"
+                    />
+                    <span className="block text-[10px] text-rose-700 mt-1">
+                      Tarifa oficial Meta Brasil: R$ 0,039
+                    </span>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-teal-50/80 border-2 border-teal-400">
+                    <label className="block text-[11px] font-extrabold text-teal-950 mb-1">
+                      💰 Valor que Você Cobra do Cliente (R$)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={formParametrosBilhetagem.valor_bilhete_notificacao_brl}
+                      onChange={(e) =>
+                        setFormParametrosBilhetagem({
+                          ...formParametrosBilhetagem,
+                          valor_bilhete_notificacao_brl: parseFloat(e.target.value) || 0,
+                        })
+                      }
+                      className="w-full px-3 py-1.5 rounded-lg border border-teal-500 bg-white text-sm font-black text-teal-950"
+                    />
+                    <span className="block text-[10px] text-teal-800 font-semibold mt-1">
+                      Cobrado por cada notificação enviada
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* ITEM 2: ATENDIMENTO DE SUPORTE POR IA 24H */}
+              <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 space-y-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <div className="text-xs font-extrabold text-slate-900">
+                      🤖 2. Atendimento de Morador pela IA (Suporte 24h)
+                    </div>
+                    <div className="text-[11px] text-slate-500">
+                      Quando o morador chama no WhatsApp e a IA tira dúvidas, informa ramal ou reseta senha
+                    </div>
+                  </div>
+                  <span className="px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-900 text-[11px] font-extrabold shrink-0">
+                    Lucro:{' '}
+                    {formatarMoedaBrl(
+                      Math.max(
+                        0,
+                        Number(formParametrosBilhetagem.valor_bilhete_atendimento_brl || 0) -
+                          Number(formParametrosBilhetagem.custo_msg_servico_meta_brl || 0),
+                      ),
+                    )}
+                    /atend.
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 pt-1">
+                  <div className="p-2.5 rounded-xl bg-rose-50/70 border border-rose-200">
+                    <label className="block text-[11px] font-extrabold text-rose-900 mb-1">
+                      📉 Valor que a Meta Cobra (R$)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.001"
+                      min="0"
+                      value={formParametrosBilhetagem.custo_msg_servico_meta_brl}
+                      onChange={(e) =>
+                        setFormParametrosBilhetagem({
+                          ...formParametrosBilhetagem,
+                          custo_msg_servico_meta_brl: parseFloat(e.target.value) || 0,
+                        })
+                      }
+                      className="w-full px-3 py-1.5 rounded-lg border border-rose-300 bg-white text-sm font-black text-rose-900"
+                    />
+                    <span className="block text-[10px] text-rose-700 mt-1">
+                      Grátis na Meta (janela 24h receptiva = R$ 0)
+                    </span>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-teal-50/80 border-2 border-teal-400">
+                    <label className="block text-[11px] font-extrabold text-teal-950 mb-1">
+                      💰 Valor que Você Cobra do Cliente (R$)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={formParametrosBilhetagem.valor_bilhete_atendimento_brl}
+                      onChange={(e) =>
+                        setFormParametrosBilhetagem({
+                          ...formParametrosBilhetagem,
+                          valor_bilhete_atendimento_brl: parseFloat(e.target.value) || 0,
+                        })
+                      }
+                      className="w-full px-3 py-1.5 rounded-lg border border-teal-500 bg-white text-sm font-black text-teal-950"
+                    />
+                    <span className="block text-[10px] text-teal-800 font-semibold mt-1">
+                      Cobrado por cada atendimento realizado
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </form>
+
+          {/* 3. TRÊS CARDS DIRETOS: 1) CUSTO DA META -> 2) VALOR PARA COBRAR DO CLIENTE -> 3) SEU LUCRO */}
+          {dadosBilhetagem && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {/* Card 1: O que a Meta Cobra */}
+              <div className="bg-white rounded-2xl border border-rose-200 p-4 shadow-2xs flex flex-col justify-between gap-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-extrabold uppercase tracking-wider text-rose-700">
+                    📉 1. Valor que a Meta Cobra (Custo)
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full bg-rose-50 text-rose-800 text-[10px] font-extrabold">
+                    Sua Despesa Meta
+                  </span>
+                </div>
+                <div className="text-2xl sm:text-3xl font-black text-rose-700">
+                  {formatarMoedaBrl(dadosBilhetagem.resumo.custo_total_meta_brl)}
+                </div>
+                <div className="text-[11px] text-slate-600 pt-1 border-t border-slate-100">
+                  Referente a <b>{formatarInteiroPtBr(dadosBilhetagem.resumo.total_notificacoes_ativas)}</b> mensagens automáticas enviadas
+                </div>
+              </div>
+
+              {/* Card 2: O que Você Cobra do Cliente */}
+              <div className="bg-teal-900 text-white rounded-2xl border border-teal-800 p-4 shadow-2xs flex flex-col justify-between gap-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-extrabold uppercase tracking-wider text-teal-200">
+                    💰 2. Valor para Cobrar do Cliente
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full bg-teal-700 text-teal-100 text-[10px] font-extrabold">
+                    {condominioFiltroBilhetagem > 0 ? 'Condomínio Selecionado' : 'Todos os Condomínios'}
+                  </span>
+                </div>
+                <div className="text-2xl sm:text-3xl font-black text-white">
+                  {formatarMoedaBrl(dadosBilhetagem.resumo.valor_total_bilhetado_brl)}
+                </div>
+                <div className="text-[11px] text-teal-200 pt-1 border-t border-teal-800/80">
+                  <b>{formatarInteiroPtBr(dadosBilhetagem.resumo.total_atendimentos)}</b> atendimentos IA +{' '}
+                  <b>{formatarInteiroPtBr(dadosBilhetagem.resumo.total_notificacoes_ativas)}</b> mensagens automáticas
+                </div>
+              </div>
+
+              {/* Card 3: Seu Lucro Líquido */}
+              <div className="bg-emerald-50 rounded-2xl border border-emerald-300 p-4 shadow-2xs flex flex-col justify-between gap-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-extrabold uppercase tracking-wider text-emerald-900">
+                    📈 3. Seu Lucro Líquido
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full bg-emerald-200 text-emerald-950 text-[10px] font-extrabold">
+                    Valor Cliente − Meta
+                  </span>
+                </div>
+                <div className="text-2xl sm:text-3xl font-black text-emerald-800">
+                  + {formatarMoedaBrl(dadosBilhetagem.resumo.saldo_resultado_brl)}
+                </div>
+                <div className="text-[11px] text-emerald-900 pt-1 border-t border-emerald-200/80">
+                  Ganho livre após descontar a fatura da Meta
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 4. TABELA POR CONDOMÍNIO (CLARA E DIRETA: LIGA/DESLIGA + CUSTO META + COBRAR DO CLIENTE) */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-2xs space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="text-sm font-extrabold text-slate-900">
+                  🏢 Condomínios: Controle de API / IA &amp; Valores ({dadosBilhetagem?.periodo_label || 'Período'})
+                </h3>
+                <p className="text-[11px] text-slate-500">
+                  Ligue ou desligue a <b>API Automática</b> e a <b>IA 24h</b> de cada condomínio e veja quanto a Meta cobra vs. quanto cobrar do cliente.
+                </p>
+              </div>
+              {condominioFiltroBilhetagem > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setCondominioFiltroBilhetagem(0)}
+                  className="px-3 py-1.5 rounded-xl bg-teal-50 hover:bg-teal-100 text-xs font-extrabold text-teal-800 border border-teal-200 cursor-pointer"
+                >
+                  ✕ Mostrar Todos os Condomínios
+                </button>
+              )}
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50 text-[11px] font-extrabold uppercase text-slate-600">
+                    <th className="py-2.5 px-3">Condomínio</th>
+                    <th className="py-2.5 px-2.5 text-center">API Automática &amp; IA 24h</th>
+                    <th className="py-2.5 px-2.5">Modo de Cobrança</th>
+                    <th className="py-2.5 px-2 text-center">Qtd. no Mês</th>
+                    <th className="py-2.5 px-2.5 text-right text-rose-700">📉 Meta Cobra</th>
+                    <th className="py-2.5 px-2.5 text-right text-teal-800">💰 Cobrar do Cliente</th>
+                    <th className="py-2.5 px-3 text-right text-emerald-800">📈 Seu Lucro</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {(dadosBilhetagem?.por_condominio ?? []).map((cd) => {
+                    const zapAutoOn = Number(cd.whatsapp_auto_ativo ?? 1) === 1;
+                    const zapIaOn = Number(cd.whatsapp_ia_ativo ?? 1) === 1;
+                    const zapChatSindicoOn = Number(cd.whatsapp_chat_condominio ?? 0) === 1;
+                    const planoAtual = cd.plano_whatsapp_ia || 'sob_demanda';
+                    const salvandoEste = salvandoPlanoCondId === cd.condominio_id;
+                    const lucroCd = Number(cd.lucro_liquido_brl ?? (cd.valor_total_bilhetado_brl - cd.custo_total_meta_brl));
+
+                    return (
+                      <tr
+                        key={cd.condominio_id}
+                        onClick={() =>
+                          setCondominioFiltroBilhetagem(
+                            condominioFiltroBilhetagem === cd.condominio_id ? 0 : cd.condominio_id,
+                          )
+                        }
+                        className={`hover:bg-slate-50 transition cursor-pointer ${
+                          condominioFiltroBilhetagem === cd.condominio_id
+                            ? 'bg-teal-50/80 font-semibold ring-1 ring-inset ring-teal-500/40'
+                            : condominioFiltroBilhetagem > 0
+                              ? 'opacity-70 hover:opacity-100'
+                              : ''
+                        }`}
+                      >
+                        <td className="py-2.5 px-3">
+                          <div className="font-extrabold text-slate-900 flex items-center gap-1.5 flex-wrap">
+                            <Building2 size={14} className="text-teal-600 shrink-0" />
+                            <span>{cd.condominio_nome}</span>
+                            {condominioFiltroBilhetagem === cd.condominio_id && (
+                              <span className="px-1.5 py-0.5 rounded bg-teal-600 text-white text-[9px] font-extrabold">
+                                ✓ Filtrado
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-2.5 px-2.5 text-center" onClick={(e) => e.stopPropagation()}>
+                          {cd.condominio_id > 0 ? (
+                            <div className="inline-flex items-center gap-1.5 flex-wrap justify-center">
+                              <button
+                                type="button"
+                                disabled={salvandoEste}
+                                onClick={() =>
+                                  void atualizarPlanoCondominioWhatsapp(cd.condominio_id, {
+                                    whatsapp_auto_ativo: zapAutoOn ? 0 : 1,
+                                  })
+                                }
+                                className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold border transition cursor-pointer ${
+                                  zapAutoOn
+                                    ? 'bg-emerald-100 text-emerald-900 border-emerald-300 hover:bg-emerald-200'
+                                    : 'bg-slate-100 text-slate-500 border-slate-300 hover:bg-slate-200'
+                                }`}
+                                title="Liga/Desliga envio automático de WhatsApp (encomendas, cadastro e avisos)"
+                              >
+                                📲 API Zap: {zapAutoOn ? 'ON' : 'OFF'}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={salvandoEste}
+                                onClick={() =>
+                                  void atualizarPlanoCondominioWhatsapp(cd.condominio_id, {
+                                    whatsapp_ia_ativo: zapIaOn ? 0 : 1,
+                                  })
+                                }
+                                className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold border transition cursor-pointer ${
+                                  zapIaOn
+                                    ? 'bg-violet-100 text-violet-900 border-violet-300 hover:bg-violet-200'
+                                    : 'bg-slate-100 text-slate-500 border-slate-300 hover:bg-slate-200'
+                                }`}
+                                title="Liga/Desliga o atendimento automático por IA 24h para este condomínio"
+                              >
+                                🤖 IA 24h: {zapIaOn ? 'ON' : 'OFF'}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={salvandoEste}
+                                onClick={() =>
+                                  void atualizarPlanoCondominioWhatsapp(cd.condominio_id, {
+                                    whatsapp_chat_condominio: zapChatSindicoOn ? 0 : 1,
+                                  })
+                                }
+                                className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold border transition cursor-pointer ${
+                                  zapChatSindicoOn
+                                    ? 'bg-teal-100 text-teal-900 border-teal-300 hover:bg-teal-200'
+                                    : 'bg-slate-100 text-slate-500 border-slate-300 hover:bg-slate-200'
+                                }`}
+                                title="Libera/Bloqueia o Chat do WhatsApp para o Síndico/Admin deste condomínio responder moradores vinculados"
+                              >
+                                💬 Chat Síndico: {zapChatSindicoOn ? 'ON' : 'OFF'}
+                              </button>
+                            </div>
+                          ) : (
+                            <span className="text-[10px] text-slate-400">Triagem Global</span>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-2.5" onClick={(e) => e.stopPropagation()}>
+                          {cd.condominio_id > 0 ? (
+                            <select
+                              disabled={salvandoEste}
+                              value={planoAtual}
+                              onChange={(e) => {
+                                const novoPlano = e.target.value;
+                                if (novoPlano === 'desativado') {
+                                  void atualizarPlanoCondominioWhatsapp(cd.condominio_id, {
+                                    plano_whatsapp_ia: novoPlano,
+                                    whatsapp_auto_ativo: 0,
+                                    whatsapp_ia_ativo: 0,
+                                    valor_mensal_plano_zap_brl: 0,
+                                  });
+                                } else if (novoPlano === 'notificacoes') {
+                                  void atualizarPlanoCondominioWhatsapp(cd.condominio_id, {
+                                    plano_whatsapp_ia: novoPlano,
+                                    whatsapp_auto_ativo: 1,
+                                    whatsapp_ia_ativo: 0,
+                                    valor_mensal_plano_zap_brl: 149,
+                                  });
+                                } else if (novoPlano === 'ia_essencial') {
+                                  void atualizarPlanoCondominioWhatsapp(cd.condominio_id, {
+                                    plano_whatsapp_ia: novoPlano,
+                                    whatsapp_auto_ativo: 1,
+                                    whatsapp_ia_ativo: 1,
+                                    valor_mensal_plano_zap_brl: 299,
+                                  });
+                                } else if (novoPlano === 'ia_ilimitado') {
+                                  void atualizarPlanoCondominioWhatsapp(cd.condominio_id, {
+                                    plano_whatsapp_ia: novoPlano,
+                                    whatsapp_auto_ativo: 1,
+                                    whatsapp_ia_ativo: 1,
+                                    valor_mensal_plano_zap_brl: 499,
+                                  });
+                                } else {
+                                  void atualizarPlanoCondominioWhatsapp(cd.condominio_id, {
+                                    plano_whatsapp_ia: 'sob_demanda',
+                                    whatsapp_auto_ativo: 1,
+                                    whatsapp_ia_ativo: 1,
+                                    valor_mensal_plano_zap_brl: 0,
+                                  });
+                                }
+                              }}
+                              className="px-2.5 py-1 rounded-lg border border-slate-300 bg-white text-[11px] font-bold text-slate-800 cursor-pointer"
+                            >
+                              <option value="sob_demanda">📊 Por Uso (Unidade)</option>
+                              <option value="notificacoes">📲 Fixo R$ 149/mês (Só API)</option>
+                              <option value="ia_essencial">🤖 Fixo R$ 299/mês (API + IA)</option>
+                              <option value="ia_ilimitado">🚀 Fixo R$ 499/mês (Completo)</option>
+                              <option value="desativado">🚫 Desativado</option>
+                            </select>
+                          ) : (
+                            <span className="text-[10px] text-slate-400">-</span>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-2 text-center whitespace-nowrap">
+                          <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-800 border border-blue-200 font-bold text-[11px] mr-1">
+                            {cd.atendimentos_suporte} IA
+                          </span>
+                          <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 font-bold text-[11px]">
+                            {cd.notificacoes_ativas} avisos
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-2.5 text-right font-extrabold text-rose-700 text-xs">
+                          {formatarMoedaBrl(cd.custo_total_meta_brl)}
+                        </td>
+                        <td className="py-2.5 px-2.5 text-right">
+                          <span className="px-2.5 py-1 rounded-lg bg-teal-50 text-teal-950 border border-teal-300 font-black text-xs">
+                            {formatarMoedaBrl(cd.valor_total_bilhetado_brl)}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-extrabold text-emerald-700 text-xs">
+                          + {formatarMoedaBrl(lucroCd)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                {dadosBilhetagem && (
+                  <tfoot>
+                    <tr className="border-t-2 border-slate-200 bg-slate-50 font-extrabold text-slate-900">
+                      <td className="py-3 px-3" colSpan={3}>
+                        {condominioFiltroBilhetagem > 0
+                          ? `TOTAL DO CONDOMÍNIO SELECIONADO`
+                          : `TOTAL DE TODOS OS CONDOMÍNIOS (${dadosBilhetagem.periodo_label})`}
+                      </td>
+                      <td className="py-3 px-2 text-center text-slate-700">
+                        {formatarInteiroPtBr(dadosBilhetagem.resumo.total_atendimentos)} IA •{' '}
+                        {formatarInteiroPtBr(dadosBilhetagem.resumo.total_notificacoes_ativas)} avisos
+                      </td>
+                      <td className="py-3 px-2.5 text-right text-rose-700 text-sm">
+                        {formatarMoedaBrl(dadosBilhetagem.resumo.custo_total_meta_brl)}
+                      </td>
+                      <td className="py-3 px-2.5 text-right text-teal-900 text-sm">
+                        {formatarMoedaBrl(dadosBilhetagem.resumo.valor_total_bilhetado_brl)}
+                      </td>
+                      <td className="py-3 px-3 text-right text-emerald-700 text-sm">
+                        + {formatarMoedaBrl(dadosBilhetagem.resumo.saldo_resultado_brl)}
+                      </td>
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
+          </div>
+
+          {/* 5. EXTRATO INDIVIDUAL (RECOLHÍVEL PARA NÃO POLUIR A TELA) */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-2xs space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="text-xs sm:text-sm font-extrabold text-slate-900">
+                  🧾 Histórico Detalhado de Conversas ({(dadosBilhetagem?.extrato_atendimentos ?? []).length})
+                </h3>
+                <p className="text-[11px] text-slate-500">
+                  Consulte cada atendimento ou mensagem enviada individualmente se precisar conferir.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setMostrarPlanosComerciais((v) => !v)}
+                  className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-extrabold cursor-pointer"
+                >
+                  {mostrarPlanosComerciais ? '▲ Ocultar Lista' : '▼ Ver Lista de Conversas'}
+                </button>
+                <button
+                  type="button"
+                  onClick={exportarCsvExtratoAtendimentos}
+                  disabled={!dadosBilhetagem}
+                  className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-extrabold inline-flex items-center gap-1.5 cursor-pointer"
+                >
+                  <span>📄 Baixar CSV</span>
+                </button>
+              </div>
+            </div>
+
+            {mostrarPlanosComerciais && (
+              <div className="overflow-x-auto max-h-[360px] overflow-y-auto pt-2 border-t border-slate-100">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead className="sticky top-0 bg-slate-50 border-b border-slate-200 text-[10px] font-extrabold uppercase text-slate-600">
+                    <tr>
+                      <th className="py-2 px-3">Data/Hora</th>
+                      <th className="py-2 px-3">Condomínio / Unidade</th>
+                      <th className="py-2 px-3">Morador / Contato</th>
+                      <th className="py-2 px-2 text-center">Tipo de Serviço</th>
+                      <th className="py-2 px-2 text-right text-rose-700">📉 Meta Cobra</th>
+                      <th className="py-2 px-3 text-right text-teal-800">💰 Valor Cliente</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {(dadosBilhetagem?.extrato_atendimentos ?? []).map((it) => (
+                      <tr
+                        key={it.conversa_id}
+                        onClick={() => {
+                          setAba('chat');
+                          setFiltroStatusConv('todas');
+                          conversaAtivaIdRef.current = it.conversa_id;
+                          void carregarMensagens(it.conversa_id, true, true);
+                        }}
+                        className="hover:bg-slate-50 cursor-pointer transition"
+                        title="Clique para abrir esta conversa no Chat"
+                      >
+                        <td className="py-2 px-3 whitespace-nowrap text-[11px] text-slate-600">
+                          {formatarHoraMsg(it.ultima_interacao_em)}
+                        </td>
+                        <td className="py-2 px-3">
+                          <div className="font-extrabold text-slate-900">{it.condominio_nome}</div>
+                          <div className="text-[10px] text-slate-500">{it.unidade_label}</div>
+                        </td>
+                        <td className="py-2 px-3">
+                          <div className="font-bold text-slate-800">{it.nome_contato}</div>
+                          <div className="text-[10px] font-mono text-slate-500">
+                            {formatarTelefoneExibicao(it.telefone)}
+                          </div>
+                        </td>
+                        <td className="py-2 px-2 text-center">
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                              it.resolvedor === 'IA Automática'
+                                ? 'bg-violet-50 text-violet-800 border border-violet-200'
+                                : it.resolvedor === 'Notificação Automática'
+                                  ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                                  : 'bg-amber-50 text-amber-900 border border-amber-200'
+                            }`}
+                          >
+                            {it.resolvedor}
+                          </span>
+                        </td>
+                        <td className="py-2 px-2 text-right text-[11px] text-rose-700 font-semibold">
+                          {formatarMoedaBrl(it.custo_meta_brl, 3)}
+                        </td>
+                        <td className="py-2 px-3 text-right font-extrabold text-teal-800">
+                          {formatarMoedaBrl(it.valor_bilhetado_brl)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* MODAL QR CODE WHATSAPP */}
       {modalQrAberto && (
         <div className="fixed inset-0 z-[250] bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4">
@@ -3918,6 +5683,367 @@ export default function WhatsappCentral() {
                 className="px-4 py-2 rounded-xl bg-blue-600 text-white text-xs font-extrabold cursor-pointer"
               >
                 Salvar Regra
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* MODAL PASTA DE DOCUMENTOS DO MORADOR / PRÉ-CADASTRO DIRETO NO CHAT */}
+      {modalPastaDocsChat && (
+        <ModalDocumentosCadastro
+          nomePessoa={modalPastaDocsChat.nomePessoa}
+          subtituloUnidade={modalPastaDocsChat.subtituloUnidade}
+          relacaoSugerida={modalPastaDocsChat.relacaoSugerida}
+          usuarioId={modalPastaDocsChat.usuarioId}
+          unidadeId={modalPastaDocsChat.unidadeId}
+          precadastroId={modalPastaDocsChat.precadastroId}
+          onFechar={() => setModalPastaDocsChat(null)}
+          onAlterado={() => {
+            if (conversaAtiva?.id) {
+              void carregarMensagens(conversaAtiva.id, false, true);
+            }
+            void carregarConversas(true);
+          }}
+        />
+      )}
+
+      {/* MODAL VINCULAR CONVERSA AO PERFIL DE UM MORADOR */}
+      {modalVincularConversaAberto && conversaAtiva && (
+        <div className="fixed inset-0 z-[260] bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-5 shadow-2xl space-y-3.5">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <h3 className="font-extrabold text-slate-900 text-base flex items-center gap-2">
+                  <Link2 size={18} className="text-teal-600" />
+                  Vincular Conversa ao Cadastro do Morador
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Associe o número <b className="font-mono">{formatarTelefoneExibicao(conversaAtiva.telefone)}</b> ao perfil de um morador para identificar unidade e documentos.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setModalVincularConversaAberto(false)}
+                className="text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="relative">
+              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                autoFocus
+                value={buscaAlvoTexto}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setBuscaAlvoTexto(v);
+                  void buscarAlvosVinculoWhatsapp(v, conversaAtiva.condominio_id || condominioSelecionadoId || 0);
+                }}
+                placeholder="Buscar por nome do morador, CPF, rua/bloco ou unidade..."
+                className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-300 text-xs sm:text-sm outline-none focus:border-teal-500"
+              />
+            </div>
+
+            <div className="max-h-72 overflow-y-auto divide-y divide-slate-100 border border-slate-200 rounded-xl">
+              {buscandoAlvo ? (
+                <div className="p-6 text-center text-xs text-slate-500 font-semibold">Buscando cadastros...</div>
+              ) : opcoesAlvoBusca.filter((o) => o.usuario_id).length === 0 ? (
+                <div className="p-6 text-center text-xs text-slate-500">
+                  Nenhum morador encontrado com este termo. Digite o nome, CPF ou número da unidade.
+                </div>
+              ) : (
+                opcoesAlvoBusca
+                  .filter((o) => o.usuario_id)
+                  .map((op) => (
+                    <button
+                      key={`conv-op-${op.usuario_id}`}
+                      type="button"
+                      disabled={salvandoVinculoMidia}
+                      onClick={() => void vincularConversaAoMorador(op)}
+                      className="w-full text-left px-3.5 py-2.5 hover:bg-teal-50/80 transition flex items-center justify-between gap-2 cursor-pointer"
+                    >
+                      <div className="min-w-0">
+                        <div className="font-extrabold text-xs sm:text-sm text-slate-900 truncate">{op.nome}</div>
+                        <div className="text-[11px] text-slate-500 flex items-center gap-1.5 flex-wrap mt-0.5">
+                          <span className="px-1.5 py-0.2 rounded bg-blue-100 text-blue-800 font-bold text-[10px]">
+                            {op.unidade_label}
+                          </span>
+                          {op.condominio_nome && (
+                            <span className="text-[10px] font-semibold text-emerald-800">• {op.condominio_nome}</span>
+                          )}
+                          {op.cpf && <span className="font-mono text-[10px]">• CPF {formatarCpfExibicao(op.cpf)}</span>}
+                        </div>
+                      </div>
+                      <span className="px-2.5 py-1 rounded-lg bg-teal-600 text-white text-[11px] font-extrabold shrink-0">
+                        Vincular
+                      </span>
+                    </button>
+                  ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL VINCULAR DOCUMENTO OU FOTO FACIAL RECEBIDA NO CHAT AO CADASTRO DO MORADOR */}
+      {modalVincularMidia && (
+        <div className="fixed inset-0 z-[260] bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <form
+            onSubmit={confirmarVinculoMidiaMorador}
+            className="bg-white rounded-2xl max-w-lg w-full p-5 shadow-2xl space-y-4 my-auto"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <h3 className="font-extrabold text-slate-900 text-base flex items-center gap-2">
+                  <Paperclip size={18} className="text-blue-600 shrink-0" />
+                  <span>Vincular Arquivo do WhatsApp ao Cadastro</span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Guarde contratos, documentos ou atualize a foto facial diretamente no perfil do morador.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setModalVincularMidia(null)}
+                className="text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Prévia do arquivo recebido */}
+            <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center gap-3">
+              {modalVincularMidia.ehPdf ? (
+                <div className="w-12 h-12 rounded-xl bg-rose-100 text-rose-700 font-black text-xs flex items-center justify-center shrink-0 border border-rose-200">
+                  PDF
+                </div>
+              ) : (
+                <img
+                  src={modalVincularMidia.msg.midia_url || ''}
+                  alt="Prévia"
+                  className="w-14 h-14 rounded-xl object-cover border border-slate-300 shrink-0"
+                />
+              )}
+              <div className="min-w-0 flex-1">
+                <div className="text-xs font-extrabold text-slate-800 truncate">
+                  {modalVincularMidia.ehPdf ? '📄 Documento PDF recebido no Chat' : '🖼️ Imagem / Foto recebida no Chat'}
+                </div>
+                {modalVincularMidia.msg.conteudo && (
+                  <div className="text-[11px] text-slate-500 truncate mt-0.5">{modalVincularMidia.msg.conteudo}</div>
+                )}
+                <a
+                  href={modalVincularMidia.msg.midia_url || '#'}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-[11px] font-bold text-blue-600 hover:underline inline-block mt-0.5"
+                >
+                  Abrir arquivo original em nova guia ↗
+                </a>
+              </div>
+            </div>
+
+            {/* Seleção do Morador / Pré-cadastro Destino */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-extrabold text-slate-700 uppercase tracking-wide">
+                  1. Morador ou Pré-cadastro Destino
+                </label>
+                {alvoSelecionadoVinculo && !mostrandoBuscaAlvo && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMostrandoBuscaAlvo(true);
+                      void buscarAlvosVinculoWhatsapp(
+                        buscaAlvoTexto,
+                        conversaAtiva?.condominio_id || condominioSelecionadoId || 0,
+                      );
+                    }}
+                    className="text-[11px] font-extrabold text-blue-600 hover:underline cursor-pointer"
+                  >
+                    Trocar morador
+                  </button>
+                )}
+              </div>
+
+              {alvoSelecionadoVinculo && !mostrandoBuscaAlvo ? (
+                <div className="p-3 rounded-xl bg-emerald-50/90 border border-emerald-300 flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="font-extrabold text-xs sm:text-sm text-emerald-950 truncate">
+                      ✅ {alvoSelecionadoVinculo.nome}
+                    </div>
+                    <div className="text-[11px] text-emerald-800 font-semibold flex items-center gap-1.5 flex-wrap mt-0.5">
+                      <span>{alvoSelecionadoVinculo.unidade_label}</span>
+                      <span>• {alvoSelecionadoVinculo.relacao}</span>
+                      {alvoSelecionadoVinculo.cpf && (
+                        <span className="font-mono">• CPF {formatarCpfExibicao(alvoSelecionadoVinculo.cpf)}</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="relative">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      value={buscaAlvoTexto}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setBuscaAlvoTexto(v);
+                        void buscarAlvosVinculoWhatsapp(v, conversaAtiva?.condominio_id || condominioSelecionadoId || 0);
+                      }}
+                      placeholder="Digite o nome, CPF ou número da unidade do morador..."
+                      className="w-full pl-8 pr-3 py-2 rounded-xl border border-slate-300 text-xs sm:text-sm outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <div className="max-h-44 overflow-y-auto divide-y divide-slate-100 border border-slate-200 rounded-xl bg-white">
+                    {buscandoAlvo ? (
+                      <div className="p-4 text-center text-xs text-slate-500">Buscando moradores...</div>
+                    ) : opcoesAlvoBusca.length === 0 ? (
+                      <div className="p-4 text-center text-xs text-slate-500">
+                        Nenhum cadastro localizado. Digite o nome, CPF ou unidade acima.
+                      </div>
+                    ) : (
+                      opcoesAlvoBusca.map((op) => (
+                        <button
+                          key={`${op.tipo_alvo}-${op.usuario_id || op.precadastro_id}`}
+                          type="button"
+                          onClick={() => {
+                            setAlvoSelecionadoVinculo(op);
+                            setMostrandoBuscaAlvo(false);
+                          }}
+                          className="w-full text-left px-3 py-2 hover:bg-blue-50 transition flex items-center justify-between gap-2 cursor-pointer"
+                        >
+                          <div className="min-w-0">
+                            <div className="font-extrabold text-xs text-slate-900 truncate">{op.nome}</div>
+                            <div className="text-[10px] text-slate-500 flex items-center gap-1.5 flex-wrap">
+                              <span className="font-bold text-blue-700">{op.unidade_label}</span>
+                              <span>• {op.relacao}</span>
+                              {op.condominio_nome && <span>• {op.condominio_nome}</span>}
+                            </div>
+                          </div>
+                          <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-800 text-[10px] font-extrabold shrink-0">
+                            Selecionar
+                          </span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Tipo de Vínculo: Documento vs Foto Facial */}
+            {!modalVincularMidia.ehPdf && (
+              <div className="space-y-1.5">
+                <label className="block text-xs font-extrabold text-slate-700 uppercase tracking-wide">
+                  2. Onde salvar esta imagem?
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setAcaoVinculoMidia('documento')}
+                    className={`p-2.5 rounded-xl border text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer transition ${
+                      acaoVinculoMidia === 'documento'
+                        ? 'bg-blue-50 border-blue-500 text-blue-900 ring-2 ring-blue-500/15'
+                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <FolderOpen size={14} /> Pasta de Documentos
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAcaoVinculoMidia('foto_facial')}
+                    className={`p-2.5 rounded-xl border text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer transition ${
+                      acaoVinculoMidia === 'foto_facial'
+                        ? 'bg-emerald-50 border-emerald-500 text-emerald-900 ring-2 ring-emerald-500/15'
+                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <ScanFace size={14} /> Foto Facial do Perfil
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Metadados do Documento (quando acao === 'documento') */}
+            {acaoVinculoMidia === 'documento' ? (
+              <div className="space-y-3 pt-1">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Tipo de Documento</label>
+                  <select
+                    value={categoriaVinculoMidia}
+                    onChange={(e) => setCategoriaVinculoMidia(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs sm:text-sm font-semibold text-slate-800"
+                  >
+                    <option value="contrato_locacao">📄 Contrato de Locação</option>
+                    <option value="autorizacao_proprietario">✍️ Autorização do Proprietário</option>
+                    <option value="escritura_imovel">🏠 Escritura / Compra e Venda</option>
+                    <option value="documento_pessoal">🪪 Documento Pessoal (RG / CNH / CPF)</option>
+                    <option value="documento_veiculo">🚗 Documento do Veículo (CRLV)</option>
+                    <option value="outros">📎 Outros Comprovantes</option>
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Identificação (opcional)</label>
+                    <input
+                      value={tituloVinculoMidia}
+                      onChange={(e) => setTituloVinculoMidia(e.target.value)}
+                      placeholder="Ex.: Contrato 2026 / CNH Frente"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs sm:text-sm"
+                    />
+                  </div>
+                  {categoriaVinculoMidia === 'contrato_locacao' && (
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Fim da Locação (opcional)</label>
+                      <input
+                        type="date"
+                        value={validadeVinculoMidia}
+                        onChange={(e) => setValidadeVinculoMidia(e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs sm:text-sm"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Observação (opcional)</label>
+                  <input
+                    value={obsVinculoMidia}
+                    onChange={(e) => setObsVinculoMidia(e.target.value)}
+                    placeholder="Ex.: Enviado pelo inquilino via WhatsApp"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs sm:text-sm"
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-900 font-medium leading-relaxed">
+                🙂 A foto será convertida automaticamente para o padrão dos leitores faciais (<b>JPEG &lt;180 KB</b>), salva no perfil de{' '}
+                <b>{alvoSelecionadoVinculo?.nome || 'morador selecionado'}</b> e sincronizada imediatamente com a portaria!
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setModalVincularMidia(null)}
+                className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                disabled={!alvoSelecionadoVinculo || salvandoVinculoMidia}
+                className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-extrabold cursor-pointer shadow-2xs"
+              >
+                {salvandoVinculoMidia
+                  ? 'Salvando...'
+                  : acaoVinculoMidia === 'foto_facial'
+                    ? '🙂 Atualizar Foto Facial'
+                    : '📎 Salvar Documento no Cadastro'}
               </button>
             </div>
           </form>

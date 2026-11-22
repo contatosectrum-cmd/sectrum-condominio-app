@@ -87,8 +87,11 @@ export default function MoradorAluguel() {
     }
   };
 
-  const cancelar = async (id: number) => {
-    if (!window.confirm('Tem certeza que deseja cancelar este aluguel?')) return;
+  const cancelar = async (id: number, jaHospedado = false) => {
+    const pergunta = jaHospedado
+      ? 'Deseja encerrar a estadia deste hóspede e remover imediatamente o acesso facial na portaria?'
+      : 'Tem certeza que deseja cancelar este aluguel?';
+    if (!window.confirm(pergunta)) return;
     setOcupado(true);
     try {
       const r = await api<{ mensagem: string }>('morador_temporada_cancelar', { corpo: { id } });
@@ -229,22 +232,32 @@ export default function MoradorAluguel() {
                       </td>
                       <td className="py-3.5 px-3 text-right">
                         {h.status === 'aguardando_morador' ? (
+                          <div className="inline-flex items-center gap-2">
+                            <button
+                              type="button"
+                              disabled={ocupado}
+                              onClick={() => aprovar(h.id)}
+                              className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold disabled:opacity-60"
+                            >
+                              ✅ Aprovar
+                            </button>
+                            <button
+                              type="button"
+                              disabled={ocupado}
+                              onClick={() => cancelar(h.id, false)}
+                              className="px-3 py-1.5 rounded-lg bg-red-500 hover:bg-red-600 text-white text-xs font-bold disabled:opacity-60"
+                            >
+                              Cancelar
+                            </button>
+                          </div>
+                        ) : h.status === 'convite' || h.status === 'aguardando_portaria' || h.status === 'presente' ? (
                           <button
                             type="button"
                             disabled={ocupado}
-                            onClick={() => aprovar(h.id)}
-                            className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold disabled:opacity-60"
-                          >
-                            ✅ Aprovar
-                          </button>
-                        ) : h.status === 'convite' || h.status === 'aguardando_portaria' ? (
-                          <button
-                            type="button"
-                            disabled={ocupado}
-                            onClick={() => cancelar(h.id)}
+                            onClick={() => cancelar(h.id, h.status === 'presente')}
                             className="px-3 py-1.5 rounded-lg bg-red-500 hover:bg-red-600 text-white text-xs font-bold disabled:opacity-60"
                           >
-                            Cancelar
+                            {h.status === 'presente' ? '🗑️ Encerrar / Remover' : 'Cancelar'}
                           </button>
                         ) : (
                           <span className="text-slate-400">—</span>

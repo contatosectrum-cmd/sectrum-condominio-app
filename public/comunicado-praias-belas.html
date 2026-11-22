@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Comunicado aos Moradores (P&amp;B) — Condomínio Praias Belas</title>
+  <style id="page-orientation-style">
+    @page {
+      size: A4 landscape;
+      margin: 0;
+    }
+  </style>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, Roboto, Helvetica, Arial, sans-serif;
+      background: #d4d4d8;
+      color: #000000;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 18px 12px 40px;
+    }
+    .toolbar-no-print {
+      width: 297mm;
+      max-width: 100%;
+      background: #18181b;
+      color: #ffffff;
+      padding: 12px 18px;
+      border-radius: 12px;
+      margin-bottom: 16px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.25);
+    }
+    .toolbar-no-print .info {
+      font-size: 13px;
+      color: #d4d4d8;
+    }
+    .toolbar-no-print .info strong {
+      color: #ffffff;
+      font-size: 14px;
+    }
+    .toolbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .btn-mode {
+      background: #27272a;
+      color: #e4e4e7;
+      border: 1.5px solid #52525b;
+      padding: 9px 14px;
+      border-radius: 8px;
+      font-weight: 800;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .btn-mode.ativo {
+      background: #ffffff;
+      color: #000000;
+      border-color: #ffffff;
+    }
+    .btn-print {
+      background: #ffffff;
+      color: #000000;
+      border: 2px solid #ffffff;
+      padding: 9px 18px;
+      border-radius: 8px;
+      font-weight: 900;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    /* ═════════════════════════════════════════════════════════════════════════
+       LAYOUT PAISAGEM (HORIZONTAL — 297mm x 210mm) — PADRÃO EM TELA GRANDE
+       ═════════════════════════════════════════════════════════════════════════ */
+    .a4-page {
+      background: #ffffff;
+      color: #000000;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.22);
+      overflow: hidden;
+    }
+
+    body[data-orientacao="landscape"] .a4-page {
+      width: 297mm;
+      height: 210mm;
+      padding: 8mm 10mm 7.5mm;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 4mm;
+    }
+
+    body[data-orientacao="landscape"] .header {
+      border: 2.5px solid #000000;
+      border-radius: 10px;
+      padding: 3.5mm 8mm;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6mm;
+    }
+    body[data-orientacao="landscape"] .header-titles {
+      text-align: left;
+    }
+    body[data-orientacao="landscape"] .condo-title {
+      font-size: 22pt;
+      font-weight: 900;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      line-height: 1.05;
+    }
+    body[data-orientacao="landscape"] .main-subtitle {
+      font-size: 12.5pt;
+      font-weight: 800;
+      margin-top: 2px;
+    }
+    body[data-orientacao="landscape"] .badge-top {
+      background: #000000;
+      color: #ffffff;
+      font-weight: 900;
+      font-size: 10pt;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      padding: 6px 16px;
+      border-radius: 999px;
+      white-space: nowrap;
+    }
+
+    body[data-orientacao="landscape"] .main-grid {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 106mm 1fr;
+      gap: 6mm;
+      align-items: stretch;
+    }
+
+    body[data-orientacao="landscape"] .hero-box {
+      border: 3.5px solid #000000;
+      border-radius: 14px;
+      padding: 5mm 5mm;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: space-between;
+      text-align: center;
+    }
+    body[data-orientacao="landscape"] .hero-title {
+      font-size: 13pt;
+      font-weight: 900;
+      text-transform: uppercase;
+      line-height: 1.18;
+    }
+    body[data-orientacao="landscape"] .qr-frame {
+      position: relative;
+      width: 88mm;
+      height: 88mm;
+      padding: 4mm;
+      background: #ffffff;
+      border: 3.5px solid #000000;
+      border-radius: 12px;
+    }
+    body[data-orientacao="landscape"] .qr-frame::after {
+      content: '';
+      position: absolute;
+      inset: -6px;
+      border: 2px dashed #000000;
+      border-radius: 15px;
+      pointer-events: none;
+    }
+    .qr-frame svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    body[data-orientacao="landscape"] .qr-cta-pill {
+      background: #000000;
+      color: #ffffff;
+      font-size: 10.5pt;
+      font-weight: 900;
+      letter-spacing: 0.7px;
+      text-transform: uppercase;
+      padding: 5px 14px;
+      border-radius: 6px;
+      width: 100%;
+    }
+    body[data-orientacao="landscape"] .steps-inline {
+      font-size: 9pt;
+      line-height: 1.32;
+    }
+
+    body[data-orientacao="landscape"] .right-col {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 3.2mm;
+    }
+    body[data-orientacao="landscape"] .intro-box {
+      border: 1.5px solid #000000;
+      border-left: 6px solid #000000;
+      border-radius: 8px;
+      padding: 3mm 4mm;
+      font-size: 10pt;
+      line-height: 1.35;
+    }
+    body[data-orientacao="landscape"] .flow-strip {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 3mm;
+    }
+    body[data-orientacao="landscape"] .flow-step {
+      border: 1.8px solid #000000;
+      border-radius: 8px;
+      padding: 2.5mm 3mm;
+    }
+    body[data-orientacao="landscape"] .flow-num {
+      display: inline-block;
+      background: #000000;
+      color: #ffffff;
+      font-size: 8pt;
+      font-weight: 900;
+      padding: 1px 7px;
+      border-radius: 4px;
+      margin-bottom: 2px;
+    }
+    body[data-orientacao="landscape"] .flow-step h4 {
+      font-size: 9.4pt;
+      font-weight: 900;
+      margin-bottom: 1.5px;
+    }
+    body[data-orientacao="landscape"] .flow-step p {
+      font-size: 8.4pt;
+      line-height: 1.28;
+    }
+    body[data-orientacao="landscape"] .profiles-title {
+      font-size: 10pt;
+      font-weight: 900;
+      text-transform: uppercase;
+      border-bottom: 2px solid #000000;
+      padding-bottom: 1mm;
+      margin-bottom: 2mm;
+    }
+    body[data-orientacao="landscape"] .profiles-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 2.6mm;
+    }
+    body[data-orientacao="landscape"] .profile-card {
+      border: 1.5px solid #000000;
+      border-radius: 8px;
+      padding: 2.4mm 3mm;
+    }
+    body[data-orientacao="landscape"] .profile-card h4 {
+      font-size: 9.3pt;
+      font-weight: 900;
+      text-transform: uppercase;
+      margin-bottom: 1.5px;
+    }
+    body[data-orientacao="landscape"] .profile-card p {
+      font-size: 8.4pt;
+      line-height: 1.28;
+    }
+    body[data-orientacao="landscape"] .tips-bar {
+      border: 1.5px solid #000000;
+      border-radius: 8px;
+      padding: 2.2mm 3.5mm;
+      font-size: 8.3pt;
+      line-height: 1.3;
+      display: flex;
+      flex-direction: column;
+      gap: 1mm;
+    }
+    body[data-orientacao="landscape"] .footer {
+      background: #000000;
+      color: #ffffff;
+      text-align: center;
+      padding: 2mm 6mm;
+      border-radius: 6px;
+      font-size: 8.5pt;
+      font-weight: 700;
+    }
+
+    /* ═════════════════════════════════════════════════════════════════════════
+       LAYOUT RETRATO (VERTICAL — 210mm x 297mm)
+       ═════════════════════════════════════════════════════════════════════════ */
+    body[data-orientacao="portrait"] .toolbar-no-print {
+      width: 210mm;
+    }
+    body[data-orientacao="portrait"] .a4-page {
+      width: 210mm;
+      height: 297mm;
+      padding: 7.5mm 11mm 7mm;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    body[data-orientacao="portrait"] .header {
+      border: 2.5px solid #000000;
+      border-radius: 10px;
+      padding: 4.2mm 8mm;
+      display: flex;
+      flex-direction: column-reverse;
+      align-items: center;
+      text-align: center;
+      gap: 3px;
+    }
+    body[data-orientacao="portrait"] .badge-top {
+      background: #000000;
+      color: #ffffff;
+      font-weight: 900;
+      font-size: 9pt;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+      padding: 2.5px 15px;
+      border-radius: 999px;
+    }
+    body[data-orientacao="portrait"] .condo-title {
+      font-size: 22pt;
+      font-weight: 900;
+      text-transform: uppercase;
+      line-height: 1.08;
+    }
+    body[data-orientacao="portrait"] .main-subtitle {
+      font-size: 12pt;
+      font-weight: 800;
+      margin-top: 3px;
+      padding-top: 3px;
+      border-top: 1.5px solid #000000;
+      display: inline-block;
+    }
+    body[data-orientacao="portrait"] .main-grid {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      margin: 3.2mm 0;
+    }
+    body[data-orientacao="portrait"] .right-col {
+      display: contents;
+    }
+    body[data-orientacao="portrait"] .intro-box {
+      order: 1;
+      border: 1.5px solid #000000;
+      border-left: 6px solid #000000;
+      border-radius: 8px;
+      padding: 2.8mm 4.5mm;
+      font-size: 9.8pt;
+      line-height: 1.35;
+    }
+    body[data-orientacao="portrait"] .hero-box {
+      order: 2;
+      border: 3.5px solid #000000;
+      border-radius: 14px;
+      padding: 4.2mm 6mm;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+    }
+    body[data-orientacao="portrait"] .hero-title {
+      font-size: 13.5pt;
+      font-weight: 900;
+      text-transform: uppercase;
+      margin-bottom: 3.2mm;
+    }
+    body[data-orientacao="portrait"] .qr-frame {
+      position: relative;
+      width: 78mm;
+      height: 78mm;
+      padding: 4mm;
+      background: #ffffff;
+      border: 3.5px solid #000000;
+      border-radius: 12px;
+    }
+    body[data-orientacao="portrait"] .qr-frame::after {
+      content: '';
+      position: absolute;
+      inset: -6px;
+      border: 2px dashed #000000;
+      border-radius: 15px;
+      pointer-events: none;
+    }
+    body[data-orientacao="portrait"] .qr-cta-pill {
+      margin-top: 3mm;
+      background: #000000;
+      color: #ffffff;
+      font-size: 10pt;
+      font-weight: 900;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      padding: 4.5px 22px;
+      border-radius: 6px;
+    }
+    body[data-orientacao="portrait"] .steps-inline {
+      margin-top: 2.4mm;
+      font-size: 9.3pt;
+      line-height: 1.33;
+      max-width: 165mm;
+    }
+    body[data-orientacao="portrait"] .flow-strip {
+      order: 3;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 3.2mm;
+    }
+    body[data-orientacao="portrait"] .flow-step {
+      border: 1.8px solid #000000;
+      border-radius: 8px;
+      padding: 2.3mm 3mm;
+    }
+    body[data-orientacao="portrait"] .flow-num {
+      display: inline-block;
+      background: #000000;
+      color: #ffffff;
+      font-size: 8pt;
+      font-weight: 900;
+      padding: 1px 7px;
+      border-radius: 4px;
+      margin-bottom: 2px;
+    }
+    body[data-orientacao="portrait"] .flow-step h4 {
+      font-size: 9.2pt;
+      font-weight: 900;
+      margin-bottom: 1.5px;
+    }
+    body[data-orientacao="portrait"] .flow-step p {
+      font-size: 8.2pt;
+      line-height: 1.28;
+    }
+    body[data-orientacao="portrait"] .profiles-section {
+      order: 4;
+    }
+    body[data-orientacao="portrait"] .profiles-title {
+      font-size: 10pt;
+      font-weight: 900;
+      text-transform: uppercase;
+      border-bottom: 2px solid #000000;
+      padding-bottom: 1mm;
+      margin-bottom: 2mm;
+    }
+    body[data-orientacao="portrait"] .profiles-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 2.5mm;
+    }
+    body[data-orientacao="portrait"] .profile-card {
+      border: 1.5px solid #000000;
+      border-radius: 8px;
+      padding: 2.1mm 3mm;
+    }
+    body[data-orientacao="portrait"] .profile-card h4 {
+      font-size: 9.1pt;
+      font-weight: 900;
+      text-transform: uppercase;
+      margin-bottom: 1.5px;
+    }
+    body[data-orientacao="portrait"] .profile-card p {
+      font-size: 8.1pt;
+      line-height: 1.27;
+    }
+    body[data-orientacao="portrait"] .tips-bar {
+      order: 5;
+      border: 1.5px solid #000000;
+      border-radius: 8px;
+      padding: 2.1mm 3.5mm;
+      font-size: 8.1pt;
+      line-height: 1.29;
+      display: flex;
+      flex-direction: column;
+      gap: 1mm;
+    }
+    body[data-orientacao="portrait"] .footer {
+      background: #000000;
+      color: #ffffff;
+      text-align: center;
+      padding: 2.2mm 6mm;
+      border-radius: 6px;
+      font-size: 8.4pt;
+      font-weight: 700;
+    }
+
+    @media print {
+      body {
+        background: #ffffff;
+        padding: 0;
+      }
+      .toolbar-no-print {
+        display: none !important;
+      }
+      .a4-page {
+        box-shadow: none !important;
+      }
+    }
+  </style>
+</head>
+<body data-orientacao="landscape">
+  <div class="toolbar-no-print">
+    <div class="info">
+      <strong>Cartaz Oficial A4 (P&amp;B Alto Contraste) — Condomínio Praias Belas</strong><br />
+      Escolha entre <strong>Paisagem (Deitado — QR 8,8 cm)</strong> ou <strong>Retrato (Em pé)</strong> antes de imprimir!
+    </div>
+    <div class="toolbar-actions">
+      <button id="btn-landscape" class="btn-mode ativo" onclick="mudarOrientacao('landscape')">Paisagem (Horizontal)</button>
+      <button id="btn-portrait" class="btn-mode" onclick="mudarOrientacao('portrait')">Retrato (Vertical)</button>
+      <button class="btn-print" onclick="window.print()">Imprimir A4 / Salvar PDF</button>
+    </div>
+  </div>
+
+  <main class="a4-page">
+    <header class="header">
+      <div class="header-titles">
+        <div class="condo-title">Condomínio Praias Belas</div>
+        <div class="main-subtitle">Atualização Cadastral dos Moradores &amp; Biometria Facial</div>
+      </div>
+      <div class="badge-top">Comunicado aos Moradores</div>
+    </header>
+
+    <div class="main-grid">
+      <!-- COLUNA ESQUERDA (NO PAISAGEM) / CENTRO (NO RETRATO): QR CODE GIGANTE -->
+      <section class="hero-box">
+        <div class="hero-title">Escaneie o QR Code com a câmera do celular</div>
+        <div class="qr-frame" aria-label="QR Code Autocadastro"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 31 31" shape-rendering="crispEdges"><path fill="#ffffff" d="M0 0h31v31H0z"/><path stroke="#000000" d="M1 1.5h7m3 0h6m1 0h1m4 0h7M1 2.5h1m5 0h1m1 0h1m1 0h1m4 0h1m1 0h2m3 0h1m5 0h1M1 3.5h1m1 0h3m1 0h1m1 0h2m1 0h1m2 0h1m1 0h1m1 0h2m2 0h1m1 0h3m1 0h1M1 4.5h1m1 0h3m1 0h1m1 0h1m5 0h5m1 0h1m1 0h1m1 0h3m1 0h1M1 5.5h1m1 0h3m1 0h1m2 0h2m1 0h4m1 0h4m1 0h1m1 0h3m1 0h1M1 6.5h1m5 0h1m4 0h1m1 0h2m1 0h2m4 0h1m5 0h1M1 7.5h7m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h7M9 8.5h2m2 0h2m1 0h1m3 0h2M1 9.5h1m5 0h1m1 0h1m1 0h1m3 0h4m1 0h1m1 0h2m2 0h3M4 10.5h3m4 0h2m2 0h2m3 0h2m3 0h1m1 0h2M2 11.5h2m3 0h2m1 0h1m2 0h1m2 0h2m1 0h1m1 0h1m1 0h1m1 0h1M1 12.5h3m1 0h2m3 0h1m2 0h1m1 0h1m3 0h3m1 0h4M3 13.5h1m3 0h2m1 0h1m2 0h5m2 0h2m1 0h2m4 0h1M4 14.5h2m4 0h2m1 0h5m2 0h6m2 0h2M3 15.5h2m2 0h1m2 0h1m3 0h3m1 0h2m1 0h1m4 0h2M3 16.5h1m1 0h2m1 0h2m2 0h1m1 0h2m3 0h1m4 0h1m2 0h1m1 0h1M2 17.5h1m1 0h4m1 0h4m2 0h1m2 0h1m7 0h2M1 18.5h1m2 0h1m3 0h1m4 0h1m2 0h2m1 0h7m1 0h3M1 19.5h3m3 0h1m3 0h6m1 0h3m1 0h2m2 0h1m2 0h1M1 20.5h1m2 0h1m4 0h2m1 0h2m1 0h1m1 0h1m2 0h1m3 0h1M1 21.5h1m3 0h3m2 0h1m5 0h1m1 0h1m2 0h5m1 0h3M9 22.5h1m1 0h1m1 0h2m1 0h1m1 0h4m3 0h2M1 23.5h7m4 0h5m2 0h3m1 0h1m1 0h3M1 24.5h1m5 0h1m4 0h1m1 0h1m1 0h1m3 0h2m3 0h1m2 0h2M1 25.5h1m1 0h3m1 0h1m3 0h1m2 0h1m1 0h2m2 0h7m1 0h2M1 26.5h1m1 0h3m1 0h1m3 0h1m4 0h2m1 0h1m1 0h2m3 0h2m1 0h1M1 27.5h1m1 0h3m1 0h1m2 0h8m1 0h3m1 0h6M1 28.5h1m5 0h1m7 0h3m5 0h2m1 0h2m1 0h1M1 29.5h7m1 0h3m1 0h1m2 0h3m4 0h1m1 0h1m1 0h1"/></svg>
+</div>
+        <div class="qr-cta-pill">▲ Aponte a Câmera Aqui ▲</div>
+        <div class="steps-inline">
+          Ao concluir o preenchimento pelo QR Code, <strong>o próprio sistema entra em contato automaticamente no seu WhatsApp</strong> caso precise de comprovante e envia sua liberação!
+        </div>
+      </section>
+
+      <!-- COLUNA DIREITA (NO PAISAGEM): EXPLICAÇÃO AMPLA NA ALTURA DOS OLHOS -->
+      <div class="right-col">
+        <div class="intro-box">
+          Olá, moradores! Estamos realizando a <strong>atualização cadastral de todos os apartamentos</strong> para trazer mais <strong>praticidade, agilidade e tranquilidade</strong> ao nosso dia a dia. Com o cadastro atualizado, você e sua família passam a contar com o acesso por <strong>Biometria Facial na Portaria</strong> e com o <strong>Interfone Digital no Celular</strong>, mantendo os registros das unidades sempre em dia.
+        </div>
+
+        <section class="flow-strip">
+          <div class="flow-step">
+            <span class="flow-num">PASSO 1</span>
+            <h4>Escaneie e Escolha o Perfil</h4>
+            <p>Informe seu <strong>Bloco e Apartamento</strong> e marque se é <strong>Proprietário(a), Cônjuge, Inquilino(a) ou Dependente</strong>.</p>
+          </div>
+          <div class="flow-step">
+            <span class="flow-num">PASSO 2</span>
+            <h4>Dados, Veículo e Selfie</h4>
+            <p>Preencha seu Nome, CPF, <strong>WhatsApp</strong>, placa do veículo (se possuir vaga) e tire <strong>1 foto nítida de frente</strong>.</p>
+          </div>
+          <div class="flow-step">
+            <span class="flow-num">PASSO 3</span>
+            <h4>Retorno Automático no Zap</h4>
+            <p>O sistema interage automaticamente no seu <strong>WhatsApp</strong> se precisar de comprovante e envia sua <strong>senha + liberação facial</strong>!</p>
+          </div>
+        </section>
+
+        <section class="profiles-section">
+          <div class="profiles-title">Qual vínculo escolher no formulário de cadastro:</div>
+          <div class="profiles-grid">
+            <div class="profile-card">
+              <h4>1. Proprietário(a) / Titular</h4>
+              <p>
+                Para o proprietário que reside no imóvel. Selecione <strong>&ldquo;Titular (Proprietário)&rdquo;</strong>, confirme os dados da unidade e registre sua foto facial (sem boné ou óculos escuros).
+              </p>
+            </div>
+
+            <div class="profile-card">
+              <h4>2. Inquilino(a) — Imóvel Alugado</h4>
+              <p>
+                Selecione <strong>&ldquo;Inquilino(a)&rdquo;</strong>. Logo após enviar o cadastro, o sistema solicitará automaticamente no seu WhatsApp a foto ou PDF do <strong>Contrato de Locação</strong> (ou declaração do proprietário) + <strong>RG/CNH</strong>.
+              </p>
+            </div>
+
+            <div class="profile-card">
+              <h4>3. Cônjuge / Esposo(a) e Familiares</h4>
+              <p>
+                <strong>A biometria facial na portaria é individual!</strong> Cada adulto morador pode escanear o QR Code e escolher <strong>&ldquo;Cônjuge&rdquo;</strong> ou <strong>&ldquo;Dependente&rdquo;</strong> para ter biometria e acesso próprio no celular.
+              </p>
+            </div>
+
+            <div class="profile-card">
+              <h4>4. Proprietário(a) que Não Mora no Local</h4>
+              <p>
+                Caso o seu apartamento esteja alugado, basta escanear o QR Code ao lado e compartilhar o formulário aberto com o seu <strong>inquilino(a) atual</strong> para que ele realize o cadastro da unidade.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <div class="tips-bar">
+          <div>
+            <strong>• Atenção na escolha do Bloco:</strong> No formulário, os blocos seguem o padrão de Rua e Lado <strong>A</strong> ou <strong>B</strong> (ex.: <strong>Rua-1 Bloco 1A / 1B</strong>, <strong>Rua-3 Bloco 10A / 10B</strong>). Selecione com atenção o bloco e o número exato do seu apartamento.
+          </div>
+          <div>
+            <strong>• Informe seu WhatsApp correto:</strong> É pelo número de WhatsApp preenchido no formulário que o sistema interage com você e envia automaticamente seu login e senha do aplicativo <strong>Sectrum Condomínio</strong> após a aprovação.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <footer class="footer">
+      Administração — Condomínio Praias Belas • Sistema de Acesso &amp; Biometria Facial Sectrum
+    </footer>
+  </main>
+
+  <script>
+    function mudarOrientacao(modo) {
+      document.body.setAttribute('data-orientacao', modo);
+      document.getElementById('page-orientation-style').textContent =
+        '@page { size: A4 ' + modo + '; margin: 0; }';
+      document.getElementById('btn-landscape').classList.toggle('ativo', modo === 'landscape');
+      document.getElementById('btn-portrait').classList.toggle('ativo', modo === 'portrait');
+    }
+    // Permite abrir direto ?modo=portrait ou ?modo=landscape
+    const p = new URLSearchParams(window.location.search).get('modo');
+    if (p === 'portrait' || p === 'landscape') mudarOrientacao(p);
+  </script>
+</body>
+</html>

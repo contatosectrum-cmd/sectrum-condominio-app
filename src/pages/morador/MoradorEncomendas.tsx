@@ -1,21 +1,52 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Package, X } from 'lucide-react';
+import QRCode from 'qrcode';
+import { Barcode, Camera, Package, X } from 'lucide-react';
 import { api, ErroApi } from '../../lib/api';
+import { obterToken } from '../../lib/sessao';
 
-// Paridade com src/views/encomendas.php + EncomendasController.php ("Minhas Encomendas").
-// Correcoes no backend: rota separada e restrita ao morador (no legado o morador conseguia enviar acoes de portaria)
-// e hash_retirada nao e enviado para servico externo de terceiros (api.qrserver.com).
+// Minhas Encomendas (App do Morador):
+// - Exibe QR Code real gerado 100% localmente no dispositivo (sem enviar hash a terceiros) + código manual de 6 dígitos
+// - Mostra código de rastreio do volume e foto da encomenda registrada na portaria
 
 interface EncomendaMorador {
   id: number;
   empresa: string;
+  codigo_rastreio?: string | null;
   observacoes: string | null;
   pin_entrega: string | null;
+  tem_foto?: boolean;
   status: string;
   hash_retirada: string | null;
   data_registro: string | null;
   data_recebimento: string | null;
   data_entrega: string | null;
+}
+
+function QrRetiradaLocal({ hash }: { hash: string }) {
+  const [urlQr, setUrlQr] = useState<string>('');
+
+  useEffect(() => {
+    let ativo = true;
+    QRCode.toDataURL(`SECTRUM-ENC:${hash}`, {
+      width: 188,
+      margin: 1,
+      color: { dark: '#0f172a', light: '#ffffff' },
+    })
+      .then((u) => {
+        if (ativo) setUrlQr(u);
+      })
+      .catch(() => {});
+    return () => {
+      ativo = false;
+    };
+  }, [hash]);
+
+  if (!urlQr) return null;
+  return (
+    <div className="inline-flex flex-col items-center p-2.5 bg-white rounded-2xl border border-emerald-200 shadow-xs">
+      <img src={urlQr} alt="QR Code de Retirada" className="w-40 h-40 rounded-lg" />
+    </div>
+  );
 }
 
 function fmtCompleto(s: string | null): string {
@@ -39,6 +70,8 @@ function fmtCurto(s: string | null): string {
 export default function MoradorEncomendas() {
   const [encomendas, setEncomendas] = useState<EncomendaMorador[]>([]);
   const [modal, setModal] = useState(false);
+  const [fotoModalUrl, setFotoModalUrl] = useState<string | null>(null);
+  const [carregandoFotoId, setCarregandoFotoId] = useState<number | null>(null);
   const [form, setForm] = useState({ empresa: '', pin_entrega: '', observacoes: '' });
   const [ocupado, setOcupado] = useState(false);
   const [msg, setMsg] = useState<{ tipo: 'ok' | 'erro'; texto: string } | null>(null);
@@ -55,6 +88,27 @@ export default function MoradorEncomendas() {
   useEffect(() => {
     carregar();
   }, [carregar]);
+
+  const abrirFotoEncomenda = async (id: number) => {
+    setCarregandoFotoId(id);
+    try {
+      const resp = await fetch(`/api.php?rota=morador_foto_encomenda&id=${id}`, {
+        headers: { Authorization: `Bearer ${obterToken() ?? ''}` },
+      });
+      if (!resp.ok) throw new Error('Foto indisponível');
+      const blobUrl = URL.createObjectURL(await resp.blob());
+      setFotoModalUrl(blobUrl);
+    } catch {
+      setMsg({ tipo: 'erro', texto: 'Não foi possível carregar a foto da encomenda.' });
+    } finally {
+      setCarregandoFotoId(null);
+    }
+  };
+
+  const fecharFotoModal = () => {
+    if (fotoModalUrl) URL.revokeObjectURL(fotoModalUrl);
+    setFotoModalUrl(null);
+  };
 
   const salvarPrevisao = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -74,12 +128,32 @@ export default function MoradorEncomendas() {
 
   return (
     <div className="max-w-[600px] mx-auto p-6 space-y-5">
+      {fotoModalUrl && (
+        <div
+          className="fixed inset-0 z-[90] bg-slate-950/85 backdrop-blur-xs flex items-center justify-center p-4"
+          onClick={fecharFotoModal}
+        >
+          <div
+            className="bg-white rounded-3xl p-4 max-w-md w-full space-y-3 shadow-2xl"
+            onClick={(ev) => ev.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <span className="font-extrabold text-slate-900 text-sm">📷 Foto da Encomenda na Portaria</span>
+              <button onClick={fecharFotoModal} className="p-1.5 rounded-full bg-slate-100 cursor-pointer">
+                <X size={16} />
+              </button>
+            </div>
+            <img src={fotoModalUrl} alt="Foto da encomenda" className="w-full max-h-[65vh] object-contain rounded-2xl bg-slate-950" />
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-2xl font-extrabold text-slate-900">Minhas Encomendas</h2>
         <button
           type="button"
           onClick={() => setModal(true)}
-          className="px-4 py-2.5 rounded-[10px] bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold shadow-sm"
+          className="px-4 py-2.5 rounded-[10px] bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold shadow-sm cursor-pointer"
         >
           + Nova Previsão
         </button>
@@ -117,8 +191,8 @@ export default function MoradorEncomendas() {
                   naPortaria
                     ? 'border-2 border-emerald-500 bg-emerald-50/70'
                     : entregue
-                    ? 'border border-slate-200 bg-slate-50 opacity-70'
-                    : 'border border-slate-200 bg-white'
+                      ? 'border border-slate-200 bg-slate-50 opacity-75'
+                      : 'border border-slate-200 bg-white'
                 }`}
               >
                 <div className="flex items-start justify-between gap-3">
@@ -141,9 +215,30 @@ export default function MoradorEncomendas() {
                   )}
                 </div>
 
+                {e.codigo_rastreio && (
+                  <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/80 border border-slate-200 text-xs font-mono font-bold text-slate-700">
+                    <Barcode size={13} className="text-slate-500" />
+                    Volume: {e.codigo_rastreio}
+                  </div>
+                )}
+
                 {e.observacoes && (
-                  <div className="mt-2.5 text-sm text-slate-600">
+                  <div className="mt-2 text-sm text-slate-600">
                     <strong>Obs:</strong> {e.observacoes}
+                  </div>
+                )}
+
+                {e.tem_foto && (
+                  <div className="mt-2.5">
+                    <button
+                      type="button"
+                      disabled={carregandoFotoId === e.id}
+                      onClick={() => abrirFotoEncomenda(e.id)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-slate-100 border border-slate-300 text-xs font-extrabold text-slate-700 cursor-pointer"
+                    >
+                      <Camera size={14} className="text-emerald-600" />
+                      {carregandoFotoId === e.id ? 'Carregando foto...' : 'Ver Foto do Pacote'}
+                    </button>
                   </div>
                 )}
 
@@ -157,15 +252,24 @@ export default function MoradorEncomendas() {
                 )}
 
                 {naPortaria && e.hash_retirada && (
-                  <div className="mt-4 pt-3 border-t border-emerald-200 space-y-2">
-                    <div className="font-extrabold text-emerald-900">Pronto para Retirada!</div>
-                    <div className="text-xs text-emerald-800">
-                      Apresente este QR Code ao porteiro ou informe o código manual abaixo.
+                  <div className="mt-4 pt-3 border-t border-emerald-200 space-y-3 text-center sm:text-left">
+                    <div>
+                      <div className="font-extrabold text-emerald-900">Pronto para Retirada!</div>
+                      <div className="text-xs text-emerald-800">
+                        Apresente este QR Code para leitura na portaria ou informe o código de 6 dígitos abaixo:
+                      </div>
                     </div>
-                    <div className="inline-block px-4 py-2 rounded-xl border-2 border-dashed border-blue-500 bg-white font-mono text-xl font-extrabold tracking-[4px] text-blue-600">
-                      {e.hash_retirada.slice(0, 6).toUpperCase()}
+
+                    <div className="flex flex-col sm:flex-row items-center gap-4">
+                      <QrRetiradaLocal hash={e.hash_retirada} />
+                      <div className="space-y-1.5">
+                        <div className="text-[11px] font-extrabold uppercase text-emerald-800">Código Manual (6 dígitos)</div>
+                        <div className="inline-block px-4 py-2 rounded-xl border-2 border-dashed border-blue-500 bg-white font-mono text-xl font-extrabold tracking-[4px] text-blue-600">
+                          {e.hash_retirada.slice(0, 6).toUpperCase()}
+                        </div>
+                        <div className="text-xs text-emerald-800">Chegou em: {fmtCurto(e.data_recebimento)}</div>
+                      </div>
                     </div>
-                    <div className="text-xs text-emerald-800">Chegou em: {fmtCurto(e.data_recebimento)}</div>
                   </div>
                 )}
 
@@ -178,7 +282,7 @@ export default function MoradorEncomendas() {
         </div>
       )}
 
-      {/* Modal Nova Encomenda */}
+      {/* Modal Nova Previsão */}
       {modal && (
         <div
           className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4"

@@ -765,6 +765,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         let unidade = (d["unidade"] as? String) ?? "Seu Apartamento"
         let deviceId = (d["device_id"] as? String) ?? "APT:0"
         let tipoChamada = (d["tipo_chamada"] as? String) ?? "apartamento"
+        let controladorId = (d["controlador_id"] as? Int) ?? Int((d["controlador_id"] as? String) ?? "") ?? 0
+        let portaPayload = (d["porta"] as? String) ?? (controladorId > 0 ? "\(controladorId)|1" : "")
         let callId = callIdRecebido.isEmpty ? "voip_\(UUID().uuidString)" : callIdRecebido
         SectrumDiag.log("voip: push recebido \(callId) (estado app=\(UIApplication.shared.applicationState.rawValue))")
 
@@ -773,8 +775,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             "status": "ringing",
             "tipo": tipoChamada,
             "device_id": deviceId,
-            "controlador_id": 0,
-            "porta": "",
+            "controlador_id": controladorId,
+            "porta": portaPayload,
             "nome_portaria": "Interfone — \(origemNome)",
             "origem_nome": origemNome,
             "unidade": unidade,

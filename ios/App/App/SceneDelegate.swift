@@ -66,7 +66,26 @@ class SectrumBridgeViewController: CAPBridgeViewController, WKScriptMessageHandl
               window.webkit.messageHandlers.SectrumIos.postMessage({ acao: 'desligarChamadaNativa', callId: callId || '' });
             },
             temBiometriaNativa: function() { return \(temBio); },
+            temCredencialBiometriaSalva: function(login) {
+              try {
+                var limpo = String(login || '').trim().toLowerCase();
+                var dig = limpo.replace(/\\D+/g, '');
+                var chave = dig.length === 11 ? dig : (limpo || 'padrao');
+                return localStorage.getItem('sectrum_ios_bio_' + chave) === '1' || localStorage.getItem('sectrum_ios_bio_ultima') === '1';
+              } catch (e) {
+                return false;
+              }
+            },
             salvarCredencialBiometriaNativa: function(login, token, usuarioJson) {
+              try {
+                var limpo = String(login || '').trim().toLowerCase();
+                var dig = limpo.replace(/\\D+/g, '');
+                var chave = dig.length === 11 ? dig : (limpo || 'padrao');
+                if (token && usuarioJson) {
+                  localStorage.setItem('sectrum_ios_bio_' + chave, '1');
+                  localStorage.setItem('sectrum_ios_bio_ultima', '1');
+                }
+              } catch (e) {}
               window.webkit.messageHandlers.SectrumIos.postMessage({
                 acao: 'salvarBiometria',
                 login: login || '',
@@ -144,6 +163,8 @@ class SectrumBridgeViewController: CAPBridgeViewController, WKScriptMessageHandl
             // Logout: este iPhone deixa de tocar as chamadas de interfone do usuário que saiu
             (UIApplication.shared.delegate as? AppDelegate)?.removerVoipTokenDoServidor()
             defaults.removeObject(forKey: "sectrum_interfone_token")
+            defaults.removeObject(forKey: "sectrum_voip_token_enviado")
+            defaults.removeObject(forKey: "sectrum_apns_token_enviado")
 
         case "encerrarCallKit":
             (UIApplication.shared.delegate as? AppDelegate)?.encerrarChamadaCallKitAtiva()

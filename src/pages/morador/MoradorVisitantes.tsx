@@ -63,12 +63,34 @@ function badgeStatus(status: string): { rotulo: string; classe: string; pulso?: 
 export default function MoradorVisitantes() {
   const [visitas, setVisitas] = useState<VisitaHist[]>([]);
   const [erro, setErro] = useState('');
+  const [msgOk, setMsgOk] = useState('');
+  const [ocupadoId, setOcupadoId] = useState<number | null>(null);
 
-  useEffect(() => {
+  const carregar = () => {
     api<{ visitas: VisitaHist[] }>('morador_visitantes')
       .then((r) => setVisitas(r.visitas))
       .catch((e) => setErro(e instanceof ErroApi ? e.message : 'Erro ao carregar visitas.'));
+  };
+
+  useEffect(() => {
+    carregar();
   }, []);
+
+  const removerVisita = async (id: number) => {
+    if (!window.confirm('Deseja remover esta visita e revogar o acesso facial na portaria?')) return;
+    setOcupadoId(id);
+    setErro('');
+    setMsgOk('');
+    try {
+      const r = await api<{ mensagem: string }>('morador_convite_cancelar', { corpo: { convite_id: id } });
+      setMsgOk(r.mensagem);
+      carregar();
+    } catch (e) {
+      setErro(e instanceof ErroApi ? e.message : 'Erro ao remover visita.');
+    } finally {
+      setOcupadoId(null);
+    }
+  };
 
   // Agrupamento preservando a ordem do banco (id DESC)
   const grupos: { data: string; itens: VisitaHist[] }[] = [];
@@ -87,6 +109,11 @@ export default function MoradorVisitantes() {
       {erro && (
         <div className="mb-4 px-4 py-3 rounded-lg bg-rose-50 border-l-4 border-rose-500 text-rose-800 text-sm font-semibold">
           {erro}
+        </div>
+      )}
+      {msgOk && (
+        <div className="mb-4 px-4 py-3 rounded-lg bg-emerald-50 border-l-4 border-emerald-500 text-emerald-800 text-sm font-semibold">
+          {msgOk}
         </div>
       )}
 
@@ -136,6 +163,16 @@ export default function MoradorVisitantes() {
                             {bs.pulso && <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />}
                             {bs.rotulo}
                           </span>
+                          {v.status === 'presente' && v.tipo !== 'temporada' && (
+                            <button
+                              type="button"
+                              disabled={ocupadoId === v.id}
+                              onClick={() => removerVisita(v.id)}
+                              className="px-3 py-1 rounded-lg bg-red-500 hover:bg-red-600 text-white text-xs font-bold disabled:opacity-60 cursor-pointer"
+                            >
+                              {ocupadoId === v.id ? 'Removendo...' : '🗑️ Remover'}
+                            </button>
+                          )}
                         </div>
                       </div>
                     );

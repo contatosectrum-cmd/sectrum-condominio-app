@@ -338,13 +338,19 @@ export async function temMicrofoneAutorizadoNaSessao(): Promise<boolean> {
  * No iPhone (iOS 17/18 WebKit), isso garante que tanto a reprodução da voz quanto a captura do microfone
  * funcionem imediatamente em Full-Duplex sem ficarem em estado 'suspended'.
  */
+let contextoConversaDesbloqueado = false;
+
 export function desbloquearContextoAudioConversa(): AudioContext | null {
   try {
+    if (ctxCompartilhadoConversa && ctxCompartilhadoConversa.state === 'running' && contextoConversaDesbloqueado) {
+      return ctxCompartilhadoConversa;
+    }
     const AudioCtx =
       window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     if (!AudioCtx) return null;
     if (!ctxCompartilhadoConversa || ctxCompartilhadoConversa.state === 'closed') {
       ctxCompartilhadoConversa = new AudioCtx();
+      contextoConversaDesbloqueado = false;
       proximoTempoReproducaoGlobal = 0;
       filtroPassaAltaGlobal = null;
       filtroPassaBaixaGlobal = null;
@@ -359,6 +365,9 @@ export function desbloquearContextoAudioConversa(): AudioContext | null {
     src.buffer = buf;
     src.connect(noEntrada);
     src.start(0);
+    if (ctxCompartilhadoConversa.state === 'running') {
+      contextoConversaDesbloqueado = true;
+    }
     return ctxCompartilhadoConversa;
   } catch {
     return null;

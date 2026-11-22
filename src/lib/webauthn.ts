@@ -1,8 +1,8 @@
 // WebAuthn (biometria do aparelho: digital / Face ID) - cadastro na tela "Registro Facial" e login.
 // Mesma lógica do JS do legado (views/minha_biometria.php e views/login.php), usando as rotas da API nova.
 // No App Nativo Android (Capacitor), utiliza também o BiometricPrompt nativo do Android quando disponível.
-import { api } from './api';
-import { obterToken, obterUsuario, salvarSessao, type Usuario } from './sessao';
+import { api, ErroApi } from './api';
+import { encerrarSessao, obterToken, obterUsuario, salvarSessao, type Usuario } from './sessao';
 import {
   autenticarComBiometriaNativa,
   ehAppNativo,
@@ -101,9 +101,21 @@ export async function entrarComBiometria(login: string): Promise<{ usuario: Usua
       'Entrar com Biometria',
       'Toque no sensor de impressão digital para acessar o Sectrum',
     );
-    const usu = dados.usuario as unknown as Usuario;
-    salvarSessao(dados.token, usu);
-    return { usuario: usu };
+    const usuSalvo = dados.usuario as unknown as Usuario;
+    salvarSessao(dados.token, usuSalvo);
+    try {
+      const eu = await api<{ usuario: Usuario }>('auth_eu');
+      if (eu?.usuario) {
+        salvarSessao(dados.token, eu.usuario);
+        return { usuario: eu.usuario };
+      }
+    } catch (err) {
+      if (err instanceof ErroApi && (err.status === 401 || err.status === 403)) {
+        encerrarSessao(true);
+        throw new Error('Sua credencial salva expirou. Entre com seu CPF e senha uma vez para reativar a biometria.');
+      }
+    }
+    return { usuario: usuSalvo };
   }
   const op = await api<OpcoesLogin>('webauthn_desafio', { corpo: { login } });
   const pk: PublicKeyCredentialRequestOptions = {

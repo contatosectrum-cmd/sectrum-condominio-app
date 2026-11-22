@@ -15,6 +15,7 @@ export interface ItemChamadaPortaria {
   device_id: string;
   terminal_id: number;
   terminal_nome: string;
+  origem_app?: boolean;
   room_no: string;
   unidade_id: number | null;
   unidade_label: string;
@@ -269,9 +270,10 @@ export default function MonitorTransbordoPortaria({ condominioId }: { condominio
     };
   }, [chamadaTransbordo?.terminal_id, chamadaTransbordo?.call_id]);
 
-  // Quando em atendimento na portaria, captura microfone do operador e recebe áudio do leitor facial
+  // Quando em atendimento na portaria, captura microfone do operador e recebe áudio (do leitor facial OU do App do Morador)
   useEffect(() => {
-    if (!emAtendimento || !chamadaTransbordo?.terminal_id) {
+    const ehAppMorador = Boolean(chamadaTransbordo?.origem_app || chamadaTransbordo?.call_id?.startsWith('apt_'));
+    if (!emAtendimento || !chamadaTransbordo || (!ehAppMorador && !chamadaTransbordo.terminal_id)) {
       sessaoMicRef.current?.encerrar();
       sessaoMicRef.current = null;
       setNivelVoz(0);
@@ -280,14 +282,25 @@ export default function MonitorTransbordoPortaria({ condominioId }: { condominio
 
     let cancelado = false;
     const termId = chamadaTransbordo.terminal_id;
+    const callIdAtual = chamadaTransbordo.call_id;
     seqAudioRef.current = 0;
 
     iniciarConversaBidirecional({
+      modoFullDuplex: ehAppMorador,
       onNivelVoz: (n) => {
         if (!cancelado) setNivelVoz(n);
       },
       onTrechoVoz: (audioUlawBase64) => {
         if (cancelado || !audioUlawBase64) return;
+        if (ehAppMorador) {
+          api('portaria_interfone_app_falar', {
+            corpo: {
+              call_id: callIdAtual,
+              audio_base64: audioUlawBase64,
+            },
+          }).catch(() => undefined);
+          return;
+        }
         filaEnvioRef.current = filaEnvioRef.current
           .then(async () => {
             await api('portaria_camera_falar', {
@@ -313,6 +326,30 @@ export default function MonitorTransbordoPortaria({ condominioId }: { condominio
     const timerRx = window.setInterval(async () => {
       if (cancelado) return;
       try {
+        if (ehAppMorador) {
+          const rxApp = await api<{
+            ok: boolean;
+            cursor: number;
+            audio_b64?: string;
+            call_status?: string;
+          }>('portaria_interfone_app_escutar', {
+            query: { call_id: callIdAtual, cursor: seqAudioRef.current },
+          });
+          if (cancelado) return;
+          if (typeof rxApp.cursor === 'number' && rxApp.cursor > 0) {
+            seqAudioRef.current = rxApp.cursor;
+          }
+          if (rxApp.ok && rxApp.audio_b64) {
+            reproduzirUlawNoContexto(rxApp.audio_b64);
+          }
+          if (rxApp.call_status && ['ended', 'canceled', 'rejected', 'missed'].includes(rxApp.call_status)) {
+            chamadasEncerradasRef.current.add(callIdAtual);
+            setEmAtendimento(false);
+            setChamadaTransbordo(null);
+          }
+          return;
+        }
+
         const rx = await api<{
           ok: boolean;
           seq: number;
@@ -329,7 +366,7 @@ export default function MonitorTransbordoPortaria({ condominioId }: { condominio
       } catch {
         // Ignora
       }
-    }, 280);
+    }, ehAppMorador ? 140 : 280);
 
     return () => {
       cancelado = true;
@@ -337,7 +374,7 @@ export default function MonitorTransbordoPortaria({ condominioId }: { condominio
       sessaoMicRef.current?.encerrar();
       sessaoMicRef.current = null;
     };
-  }, [emAtendimento, chamadaTransbordo?.terminal_id, chamadaTransbordo?.call_id]);
+  }, [emAtendimento, chamadaTransbordo?.terminal_id, chamadaTransbordo?.call_id, chamadaTransbordo?.origem_app]);
 
   const assumirChamadaAgora = async (c: ItemChamadaPortaria) => {
     setAssumindoId(c.call_id);
@@ -507,32 +544,56 @@ export default function MonitorTransbordoPortaria({ condominioId }: { condominio
                 )}
               </div>
 
-              {/* Visor da Câmera do Leitor Facial */}
-              <div className="relative aspect-[4/3] w-full rounded-2xl overflow-hidden bg-black border border-slate-700 flex items-center justify-center">
-                {snapshot ? (
-                  <img
-                    src={snapshot}
-                    alt="Câmera da Portaria"
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <div className="flex flex-col items-center gap-2 text-slate-400 p-6 text-center">
-                    <PhoneCall size={36} className="text-amber-400 animate-pulse" />
-                    <span className="text-xs font-bold">Capturando vídeo do leitor {chamadaTransbordo.terminal_nome}...</span>
+              {/* Visor da Câmera do Leitor Facial OU Avatar de Chamada de Voz do App do Morador */}
+              {chamadaTransbordo.origem_app || chamadaTransbordo.call_id.startsWith('apt_') ? (
+                <div className="w-full rounded-2xl bg-gradient-to-b from-indigo-950/90 to-slate-900 border border-indigo-500/40 p-6 flex flex-col items-center justify-center text-center gap-3">
+                  <div className="relative flex items-center justify-center">
+                    <span className="absolute w-24 h-24 rounded-full bg-emerald-500/20 animate-ping" />
+                    <div className="relative w-20 h-20 rounded-full bg-emerald-600/30 border-2 border-emerald-400 flex items-center justify-center text-emerald-300 shadow-xl">
+                      <PhoneCall size={36} className={emAtendimento ? '' : 'animate-bounce'} />
+                    </div>
                   </div>
-                )}
-                <div className="absolute top-3 left-3 flex items-center gap-1.5">
-                  <span className="px-2.5 py-1 rounded-full bg-rose-600/90 text-white text-[11px] font-extrabold uppercase flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-white animate-ping" />
-                    Câmera: {chamadaTransbordo.terminal_nome}
-                  </span>
+                  <div>
+                    <div className="text-xs font-extrabold uppercase tracking-wider text-emerald-300">
+                      {emAtendimento ? '🔊 Conversa em Tempo Real (Full-Duplex)' : '📲 Chamada Recebida do Aplicativo'}
+                    </div>
+                    <div className="text-lg font-black text-white mt-0.5">
+                      {chamadaTransbordo.unidade_label}
+                    </div>
+                    <div className="text-xs text-slate-300 mt-1">
+                      {emAtendimento
+                        ? 'Fale normalmente pelo microfone do computador'
+                        : 'Clique em "Atender e Falar" abaixo (ou tire o Telefone IP do gancho)'}
+                    </div>
+                  </div>
                 </div>
-                {horarioSnap && (
-                  <span className="absolute bottom-3 right-3 px-2 py-0.5 rounded bg-black/75 text-[11px] font-mono text-slate-200">
-                    {horarioSnap}
-                  </span>
-                )}
-              </div>
+              ) : (
+                <div className="relative aspect-[4/3] w-full rounded-2xl overflow-hidden bg-black border border-slate-700 flex items-center justify-center">
+                  {snapshot ? (
+                    <img
+                      src={snapshot}
+                      alt="Câmera da Portaria"
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="flex flex-col items-center gap-2 text-slate-400 p-6 text-center">
+                      <PhoneCall size={36} className="text-amber-400 animate-pulse" />
+                      <span className="text-xs font-bold">Capturando vídeo do leitor {chamadaTransbordo.terminal_nome}...</span>
+                    </div>
+                  )}
+                  <div className="absolute top-3 left-3 flex items-center gap-1.5">
+                    <span className="px-2.5 py-1 rounded-full bg-rose-600/90 text-white text-[11px] font-extrabold uppercase flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-white animate-ping" />
+                      Câmera: {chamadaTransbordo.terminal_nome}
+                    </span>
+                  </div>
+                  {horarioSnap && (
+                    <span className="absolute bottom-3 right-3 px-2 py-0.5 rounded bg-black/75 text-[11px] font-mono text-slate-200">
+                      {horarioSnap}
+                    </span>
+                  )}
+                </div>
+              )}
 
               {/* Medidor de voz quando em atendimento */}
               {emAtendimento && (
@@ -569,15 +630,17 @@ export default function MonitorTransbordoPortaria({ condominioId }: { condominio
 
               {/* Botões de Ação da Portaria */}
               <div className="space-y-3 pt-1">
-                <button
-                  type="button"
-                  disabled={abrindoPorta}
-                  onClick={abrirPortaPeloTransbordo}
-                  className="w-full py-3.5 px-4 rounded-2xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-black text-sm flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/30 cursor-pointer transition"
-                >
-                  <Unlock size={18} />
-                  {abrindoPorta ? '⏳ Abrindo Porta...' : `🔓 Liberar e Abrir ${chamadaTransbordo.terminal_nome}`}
-                </button>
+                {chamadaTransbordo.terminal_id > 0 && (
+                  <button
+                    type="button"
+                    disabled={abrindoPorta}
+                    onClick={abrirPortaPeloTransbordo}
+                    className="w-full py-3.5 px-4 rounded-2xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-black text-sm flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/30 cursor-pointer transition"
+                  >
+                    <Unlock size={18} />
+                    {abrindoPorta ? '⏳ Abrindo Porta...' : `🔓 Liberar e Abrir ${chamadaTransbordo.terminal_nome}`}
+                  </button>
+                )}
 
                 <div className="grid grid-cols-2 gap-3">
                   {!emAtendimento ? (

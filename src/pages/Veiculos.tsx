@@ -49,7 +49,16 @@ export default function Veiculos() {
       depois?.();
       await carregar();
     } catch (e) {
-      setAviso({ tipo: 'erro', mensagem: e instanceof ErroApi ? e.message : 'Erro inesperado.' });
+      const m = e instanceof ErroApi ? e.message : 'Erro inesperado.';
+      if (rota === 'veiculo_salvar' && m.startsWith('LIMITE_VAGAS:')) {
+        const detalhe = m.replace(/^LIMITE_VAGAS:\s*/, '');
+        setOcupado(false);
+        if (window.confirm(`${detalhe}\n\nDeseja autorizar este veículo mesmo assim como exceção administrativa?`)) {
+          await executar(rota, { ...corpo, forcar_limite: 1 }, depois);
+        }
+        return;
+      }
+      setAviso({ tipo: 'erro', mensagem: m.replace(/^LIMITE_VAGAS:\s*/, '') });
     } finally {
       setOcupado(false);
       document.querySelector('main .overflow-auto')?.scrollTo({ top: 0, behavior: 'smooth' });

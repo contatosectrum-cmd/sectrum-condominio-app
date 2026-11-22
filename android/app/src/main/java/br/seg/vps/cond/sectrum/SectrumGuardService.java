@@ -9,6 +9,9 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.ServiceInfo;
+import android.media.AudioAttributes;
+import android.media.RingtoneManager;
+import android.net.Uri;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.PowerManager;
@@ -48,7 +51,7 @@ public class SectrumGuardService extends Service {
     public static final String EXTRA_FURAR_DND = "furar_dnd";
 
     static final String CHANNEL_BG = "sectrum_plantao_v3";
-    static final String CHANNEL_CALL = "sectrum_interfone_calls_v2";
+    static final String CHANNEL_CALL = "sectrum_interfone_calls_v3";
     static final String CHANNEL_EMERGENCY = "sectrum_emergencia_alarm_v2";
     static final String CHANNEL_GERAL = "sectrum_avisos_v1";
 
@@ -281,9 +284,10 @@ public class SectrumGuardService extends Service {
         NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
         if (nm == null) return;
 
-        // Remove o canal da antiga notificação fixa 24 h
+        // Remove canais antigos
         try {
             nm.deleteNotificationChannel("sectrum_guard_bg");
+            nm.deleteNotificationChannel("sectrum_interfone_calls_v2");
         } catch (Exception ignored) {}
 
         NotificationChannel chBg = new NotificationChannel(CHANNEL_BG, "Chamada em andamento", NotificationManager.IMPORTANCE_LOW);
@@ -293,8 +297,16 @@ public class SectrumGuardService extends Service {
 
         NotificationChannel chCall = new NotificationChannel(CHANNEL_CALL, "Chamadas de Interfone", NotificationManager.IMPORTANCE_HIGH);
         chCall.setDescription("Toque e abertura de tela em chamadas de interfone da portaria ou apartamentos.");
+        Uri soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
+        AudioAttributes audioAttrs = new AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build();
+        chCall.setSound(soundUri, audioAttrs);
         chCall.enableVibration(true);
+        chCall.setVibrationPattern(new long[]{0, 800, 200, 800, 200, 800});
         chCall.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
+        chCall.setBypassDnd(true);
         nm.createNotificationChannel(chCall);
 
         NotificationChannel chEm = new NotificationChannel(CHANNEL_EMERGENCY, "Alarme de Emergência (SOS)", NotificationManager.IMPORTANCE_HIGH);
@@ -325,6 +337,10 @@ public class SectrumGuardService extends Service {
     }
 
     static void dispararChamada(Context ctx, String nomeOrigem, String unidade) {
+        dispararChamada(ctx, nomeOrigem, unidade, "", "");
+    }
+
+    static void dispararChamada(Context ctx, String nomeOrigem, String unidade, String callId, String url) {
         criarCanaisNotificacao(ctx);
         acordarDispositivo(ctx);
         if (!MainActivity.estaEmPrimeiroPlano) {
@@ -332,12 +348,33 @@ public class SectrumGuardService extends Service {
         }
         String origem = (nomeOrigem == null || nomeOrigem.isEmpty()) ? "Interfone" : nomeOrigem;
         String unid = (unidade == null || unidade.isEmpty()) ? "Seu Apartamento" : unidade;
+        String callIdFinal = callId != null ? callId : "";
+        String urlAlvo = (url != null && !url.isEmpty()) ? url : ("/morador" + (!callIdFinal.isEmpty() ? "?call_id=" + callIdFinal : ""));
 
         Intent fullScreenIntent = new Intent(ctx, MainActivity.class);
         fullScreenIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         fullScreenIntent.putExtra("sectrum_evento", "interfone");
+        fullScreenIntent.putExtra("sectrum_url", urlAlvo);
+        fullScreenIntent.putExtra("call_id", callIdFinal);
         PendingIntent fullScreenPi = PendingIntent.getActivity(ctx, 201, fullScreenIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
+        // Ação Atender
+        Intent intentAtender = new Intent(ctx, SectrumCallActionReceiver.class);
+        intentAtender.setAction(SectrumCallActionReceiver.ACTION_ATENDER);
+        intentAtender.putExtra("call_id", callIdFinal);
+        intentAtender.putExtra("sectrum_url", urlAlvo);
+        PendingIntent piAtender = PendingIntent.getBroadcast(ctx, 301, intentAtender,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
+        // Ação Recusar
+        Intent intentRecusar = new Intent(ctx, SectrumCallActionReceiver.class);
+        intentRecusar.setAction(SectrumCallActionReceiver.ACTION_RECUSAR);
+        intentRecusar.putExtra("call_id", callIdFinal);
+        PendingIntent piRecusar = PendingIntent.getBroadcast(ctx, 302, intentRecusar,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
+        Uri soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
 
         NotificationCompat.Builder builder = new NotificationCompat.Builder(ctx, CHANNEL_CALL)
                 .setSmallIcon(android.R.drawable.sym_action_call)
@@ -349,8 +386,13 @@ public class SectrumGuardService extends Service {
                 .setOngoing(true)
                 .setAutoCancel(true)
                 .setTimeoutAfter(60_000L)
+                .setSound(soundUri)
+                .setVibrate(new long[]{0, 800, 200, 800, 200, 800})
                 .setContentIntent(fullScreenPi)
-                .setFullScreenIntent(fullScreenPi, true);
+                .setFullScreenIntent(fullScreenPi, true)
+                .addAction(android.R.drawable.sym_action_call, "ATENDER", piAtender)
+                .addAction(android.R.drawable.ic_menu_close_clear_cancel, "RECUSAR", piRecusar)
+                .setColor(0xFF10B981);
 
         NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
         if (nm != null) nm.notify(NOTIF_ID_CALL, builder.build());
@@ -395,7 +437,7 @@ public class SectrumGuardService extends Service {
                 PowerManager.WakeLock wl = pm.newWakeLock(
                         PowerManager.SCREEN_BRIGHT_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP | PowerManager.ON_AFTER_RELEASE,
                         "sectrum:WakeAlertLock");
-                wl.acquire(15000L);
+                wl.acquire(25000L);
             }
         } catch (Exception ignored) {}
     }

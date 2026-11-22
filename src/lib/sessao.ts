@@ -1,13 +1,27 @@
 // Sessao do usuario no navegador (substitui a $_SESSION do legado).
 // Guarda o token assinado pela API e os dados publicos do usuario.
-import { sincronizarSessaoComAppNativo } from './nativo';
+import { limparSessaoAppNativo, sincronizarSessaoComAppNativo } from './nativo';
 
 export type Perfil = 'superadmin' | 'admin' | 'sindico' | 'portaria' | 'morador';
+
+export interface PermissoesGestorSistema {
+  gerenciar_colaboradores?: boolean;
+  gerenciar_frota_lpr?: boolean;
+  liberar_visitantes?: boolean;
+  abrir_portas_remoto?: boolean;
+  visualizar_cameras?: boolean;
+  gerenciar_encomendas?: boolean;
+  abrir_ocorrencias?: boolean;
+  usar_interfone?: boolean;
+}
 
 export interface Usuario {
   id: number;
   nome: string;
   perfil: Perfil;
+  subperfil?: string | null;
+  cargo_funcao?: string | null;
+  permissoes_sistema?: PermissoesGestorSistema;
   condominio_id: number | null;
   condominio_nome: string | null;
   permite_temporada?: boolean;
@@ -21,6 +35,12 @@ export interface Usuario {
   modulo_emergencia?: boolean;
   emergencia_furar_nao_perturbe?: boolean;
   cameras_morador_ativo?: boolean;
+  whatsapp_chat_condominio?: boolean;
+  modulo_seguranca_facial?: boolean;
+  modulo_financeiro?: boolean;
+  modulo_transparencia?: boolean;
+  modulo_mudancas?: boolean;
+  modulo_manutencoes?: boolean;
   superadmin: boolean;
   unidade_id: number | null;
   primeiro_acesso: number;
@@ -62,7 +82,7 @@ function decodificarTokenMorador(tok: string): Usuario | null {
       perfil: 'morador',
       condominio_id: claims.cid ?? null,
       condominio_nome: null,
-      permite_temporada: true,
+      permite_temporada: false,
       superadmin: false,
       unidade_id: claims.uid ?? null,
       primeiro_acesso: Number(claims.pa ?? 0),
@@ -167,7 +187,14 @@ export function restaurarSessaoInterfone(tokenPush?: string): boolean {
       }
     }
     const tokSalvo = localStorage.getItem(CHAVE_INTERFONE_TOKEN);
-    const usuSalvo = localStorage.getItem(CHAVE_INTERFONE_USUARIO);
+    let usuSalvo = localStorage.getItem(CHAVE_INTERFONE_USUARIO);
+    if (tokSalvo && !usuSalvo) {
+      const uRec = decodificarTokenMorador(tokSalvo);
+      if (uRec) {
+        usuSalvo = JSON.stringify(uRec);
+        localStorage.setItem(CHAVE_INTERFONE_USUARIO, usuSalvo);
+      }
+    }
     if (tokSalvo && usuSalvo) {
       localStorage.setItem(CHAVE_TOKEN, tokSalvo);
       localStorage.setItem(CHAVE_USUARIO, usuSalvo);
@@ -188,13 +215,16 @@ export function atualizarUsuario(usuario: Usuario) {
   notificar();
 }
 
-export function encerrarSessao() {
+export function encerrarSessao(logoutExplicito = false) {
   localStorage.removeItem(CHAVE_TOKEN);
   localStorage.removeItem(CHAVE_USUARIO);
-  // Limpa chaves da fase anterior (login simulado), mas PRESERVA CHAVE_INTERFONE_TOKEN
-  // para que o interfone continue tocando no celular do morador mesmo deslogado!
   localStorage.removeItem('cond_token');
   localStorage.removeItem('cond_perfil');
+  if (logoutExplicito) {
+    localStorage.removeItem(CHAVE_INTERFONE_TOKEN);
+    localStorage.removeItem(CHAVE_INTERFONE_USUARIO);
+    limparSessaoAppNativo();
+  }
   notificar();
 }
 

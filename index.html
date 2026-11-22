@@ -13,20 +13,35 @@
     <link rel="apple-touch-icon" href="/icon-192.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <title>Sectrum — Acesso</title>
+    <title>Sectrum — Gestão Condominial</title>
+    <meta name="description" content="Sectrum Condomínio — Plataforma oficial de gestão condominial, controle de acesso facial e interfonia digital. Operado por J.V DE C SABINO (SECTRUM DISTRIBUIDORA E SEGURANCA ELETRONICA) - CNPJ 17.241.131/0001-63 - Rua Quatro, 37, Quadra 32, Cohatrac II, São Luís - MA, CEP 65054-300." />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        "legalName": "J.V DE C SABINO",
+        "name": "SECTRUM DISTRIBUIDORA E SEGURANCA ELETRONICA",
+        "alternateName": "Sectrum Condomínio",
+        "taxID": "17.241.131/0001-63",
+        "url": "https://cond.vps.seg.br",
+        "telephone": "+55-98-3239-3767",
+        "email": "contatossectrum@gmail.com",
+        "address": {
+          "@type": "PostalAddress",
+          "streetAddress": "R QUATRO, 37, QUADRA 32, COHATRAC II",
+          "addressLocality": "SAO LUIS",
+          "addressRegion": "MA",
+          "postalCode": "65054-300",
+          "addressCountry": "BR"
+        }
+      }
+    </script>
     <script>
-      window.__deferredPwaPrompt = null;
       window.addEventListener('beforeinstallprompt', function (e) {
         e.preventDefault();
-        window.__deferredPwaPrompt = e;
-        window.dispatchEvent(new Event('sectrum:pwa-prompt-ready'));
-      });
-      window.addEventListener('appinstalled', function () {
-        window.__deferredPwaPrompt = null;
-        window.dispatchEvent(new Event('sectrum:pwa-installed'));
       });
     </script>
-    <script src="/video-rtc.js?v=20261026a"></script>
+    <script src="/video-rtc.js?v=20261110"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js" defer></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js" defer></script>
   </head>
@@ -37,10 +52,9 @@
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
           navigator.serviceWorker
-            .register('/sw-push.js?v=20261022v14', { scope: '/', updateViaCache: 'none' })
+            .register('/sw-push.js?v=20261110', { scope: '/', updateViaCache: 'none' })
             .then((r) => {
-              r.update();
-              window.addEventListener('focus', () => r.update());
+              r.update().catch(() => {});
             })
             .catch(() => {});
         });

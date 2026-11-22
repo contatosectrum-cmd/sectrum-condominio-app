@@ -13,12 +13,16 @@ const ROTAS_INTERFONE_BG = new Set([
   'morador_interfone_escutar',
   'morador_camera_snapshot',
   'morador_camera_voz',
+  'morador_camera_falar',
+  'morador_camera_escutar',
   'morador_camera_stream',
+  'morador_camera_webrtc',
   'morador_abrir_porta',
   'morador_emergencia_acionar',
   'emergencia_status_ativo',
   'emergencia_responder',
   'salvar_fcm_token',
+  'remover_voip_token',
 ]);
 
 export class ErroApi extends Error {
@@ -30,7 +34,7 @@ export class ErroApi extends Error {
 }
 
 interface Opcoes {
-  metodo?: 'GET' | 'POST' | 'PUT' | 'DELETE';
+  metodo?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   corpo?: unknown;
   query?: Record<string, string | number | boolean | null | undefined>;
   signal?: AbortSignal;
@@ -62,7 +66,8 @@ export async function api<T = Record<string, unknown>>(rota: string, opcoes: Opc
   const headers: Record<string, string> = { Accept: 'application/json' };
   const token = obterToken() || (ROTAS_INTERFONE_BG.has(rota) ? obterTokenInterfone() : null);
   if (token) headers.Authorization = `Bearer ${token}`;
-  if (opcoes.corpo !== undefined) headers['Content-Type'] = 'application/json';
+  const ehFormData = typeof FormData !== 'undefined' && opcoes.corpo instanceof FormData;
+  if (opcoes.corpo !== undefined && !ehFormData) headers['Content-Type'] = 'application/json';
 
   const baseApi = ehAppNativo() ? obterOrigemServidor() : '';
   let resp: Response;
@@ -70,7 +75,7 @@ export async function api<T = Record<string, unknown>>(rota: string, opcoes: Opc
     resp = await fetchOriginal(`${baseApi}/api.php?${params.toString()}`, {
       method: metodo,
       headers,
-      body: opcoes.corpo !== undefined ? JSON.stringify(opcoes.corpo) : undefined,
+      body: opcoes.corpo !== undefined ? (ehFormData ? (opcoes.corpo as FormData) : JSON.stringify(opcoes.corpo)) : undefined,
       signal: opcoes.signal,
     });
   } catch {
