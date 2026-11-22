@@ -24,7 +24,7 @@ class SectrumBridgeViewController: CAPBridgeViewController, WKScriptMessageHandl
           try { document.documentElement.classList.add('sectrum-ios-native'); } catch (e) {}
           window.SectrumAndroid = {
             ehAppNativo: function() { return true; },
-            obterVersaoApp: function() { return '1.0.0-ios-native'; },
+            obterVersaoApp: function() { return '1.1.0-ios-native'; },
             salvarSessaoNativa: function(token, usuarioJson, baseUrl) {
               window.webkit.messageHandlers.SectrumIos.postMessage({
                 acao: 'salvarSessao',
